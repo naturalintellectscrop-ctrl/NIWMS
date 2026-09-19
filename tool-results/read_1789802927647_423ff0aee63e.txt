@@ -1,0 +1,787 @@
+     1→'use client'
+     2→
+     3→import Link from 'next/link'
+     4→import { useRouter } from 'next/navigation'
+     5→import { FormEvent, useEffect, useState } from 'react'
+     6→import {
+     7→  ArrowRight,
+     8→  BarChart3,
+     9→  BellRing,
+    10→  CalendarRange,
+    11→  Check,
+    12→  CheckCircle2,
+    13→  ChevronDown,
+    14→  ChevronRight,
+    15→  ClipboardCheck,
+    16→  FileSpreadsheet,
+    17→  LayoutDashboard,
+    18→  Menu,
+    19→  Mic,
+    20→  Play,
+    21→  Receipt,
+    22→  Search,
+    23→  Settings,
+    24→  ShieldCheck,
+    25→  TrendingUp,
+    26→  UsersRound,
+    27→  X,
+    28→} from 'lucide-react'
+    29→import { computeQuote, type BillingInterval, type Quote } from '@/lib/billing/pricing'
+    30→
+    31→/* ------------------------------------------------------------------ */
+    32→/* Content — truthful NIWMS product messaging                          */
+    33→/* ------------------------------------------------------------------ */
+    34→
+    35→const NAV_LINKS: Array<[string, string]> = [
+    36→  ['features', 'Features'],
+    37→  ['how-it-works', 'How It Works'],
+    38→  ['pricing', 'Pricing'],
+    39→  ['faq', 'FAQ'],
+    40→]
+    41→
+    42→const FEATURES = [
+    43→  {
+    44→    icon: ClipboardCheck,
+    45→    title: 'Daily Employee Reporting',
+    46→    text: 'Employees submit structured daily work activities so managers can see what is actually being done.',
+    47→    card: 'bg-[#e9f0ee]',
+    48→    chip: 'bg-[#123c36]',
+    49→  },
+    50→  {
+    51→    icon: BarChart3,
+    52→    title: 'Workforce Visibility',
+    53→    text: 'Monitor submissions, missing reports, employees, departments and organizational activity.',
+    54→    card: 'bg-[#f5eadb]',
+    55→    chip: 'bg-[#c47b32]',
+    56→  },
+    57→  {
+    58→    icon: FileSpreadsheet,
+    59→    title: 'Monthly Reports',
+    60→    text: 'Turn daily activity into structured monthly reports with statistics, categories and achievements.',
+    61→    card: 'bg-[#e4ebe6]',
+    62→    chip: 'bg-[#356247]',
+    63→  },
+    64→  {
+    65→    icon: TrendingUp,
+    66→    title: 'Reporting Intelligence',
+    67→    text: 'Identify recurring work, dominant categories and evidence-based achievements from employee activity.',
+    68→    card: 'bg-[#f6ecdb]',
+    69→    chip: 'bg-[#b2761b]',
+    70→  },
+    71→]
+    72→
+    73→const STEPS = [
+    74→  { number: '01', title: 'Create Your Workspace', text: 'Set up your organization and workforce.' },
+    75→  { number: '02', title: 'Add Your Team', text: 'Create departments, positions and employees.' },
+    76→  { number: '03', title: 'Capture Daily Work', text: 'Employees submit structured daily activity reports.' },
+    77→  { number: '04', title: 'Understand the Month', text: 'Generate monthly reports and workforce insights.' },
+    78→]
+    79→
+    80→const FAQS: Array<[string, string]> = [
+    81→  ['Do employees need training?', 'The daily activity flow is intentionally simple. Most teams can introduce it with a short walkthrough and a clear reporting expectation.'],
+    82→  ['Can we export our monthly reports?', 'Yes. Monthly reporting is designed for structured, Excel-ready exports that include summaries, statistics, activities, and notes.'],
+    83→  ['How are employee reports generated?', 'Employees capture their daily activities as they happen. NIWMS then compiles those entries into monthly reports with statistics, work categories, and achievements ready for management.'],
+    84→  ['Is my organization\u2019s data isolated?', 'Yes. Data is scoped to your organization on the server, and access is role-aware. Important actions can be recorded in an audit trail for review.'],
+    85→  ['How does the trial work?', 'Start with a 14-day trial without payment details. You set up your workspace, add your team, and use the full reporting flow before deciding anything.'],
+    86→  ['What happens after the trial?', 'Choose the plan and billing interval that fit your organization. Because the trial requires no payment details, nothing is charged automatically.'],
+    87→]
+    88→
+    89→/* ------------------------------------------------------------------ */
+    90→/* Pricing catalog — hydrates from the billing engine                  */
+    91→/* ------------------------------------------------------------------ */
+    92→
+    93→interface PlanCard {
+    94→  key: string
+    95→  name: string
+    96→  description: string
+    97→  /** Whole UGX list price per month; null = custom-priced (Enterprise). */
+    98→  monthlyPrice: number | null
+    99→  maxEmployees: number | null
+   100→  limit: string
+   101→  featured?: boolean
+   102→}
+   103→
+   104→// Fallback catalog — kept numerically identical to the Plan table (see
+   105→// ensureDefaultPlans in src/lib/entitlements.ts). The pricing section hydrates
+   106→// from GET /api/plans so the brochure and the billing engine can never drift.
+   107→const FALLBACK_PLANS: PlanCard[] = [
+   108→  { key: 'starter', name: 'Starter', description: 'A focused foundation for small teams.', monthlyPrice: 30000, maxEmployees: 10, limit: 'Up to 10 employees' },
+   109→  { key: 'business', name: 'Business', description: 'More visibility for growing organizations.', monthlyPrice: 75000, maxEmployees: 30, limit: 'Up to 30 employees', featured: true },
+   110→  { key: 'professional', name: 'Professional', description: 'Reporting depth for established teams.', monthlyPrice: 150000, maxEmployees: 75, limit: 'Up to 75 employees' },
+   111→  { key: 'enterprise', name: 'Enterprise', description: 'A plan shaped around your operating model.', monthlyPrice: null, maxEmployees: null, limit: '75+ employees' },
+   112→]
+   113→
+   114→const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'annual']
+   115→
+   116→const ugx = (amount: number) => `UGX ${Math.round(amount).toLocaleString('en-US')}`
+   117→
+   118→/* ------------------------------------------------------------------ */
+   119→/* Page                                                                */
+   120→/* ------------------------------------------------------------------ */
+   121→
+   122→export default function MarketingPage() {
+   123→  const router = useRouter()
+   124→  const [menuOpen, setMenuOpen] = useState(false)
+   125→  const [interval, setInterval] = useState<BillingInterval>('annual')
+   126→  const [plans, setPlans] = useState<PlanCard[]>(FALLBACK_PLANS)
+   127→  const [activeSection, setActiveSection] = useState('features')
+   128→  const [ctaEmail, setCtaEmail] = useState('')
+   129→
+   130→  // Hydrate the catalog from the billing engine's public endpoint. If it is
+   131→  // unreachable, the fallback constants above still render truthful numbers.
+   132→  useEffect(() => {
+   133→    let cancelled = false
+   134→    fetch('/api/plans')
+   135→      .then((response) => (response.ok ? response.json() : null))
+   136→      .then((body) => {
+   137→        if (cancelled || !body?.plans) return
+   138→        const hydrated: PlanCard[] = body.plans.map((plan: { key: string; name: string; description?: string; monthlyPrice: number; maxEmployees: number | null; customPricing?: boolean }) => ({
+   139→          key: plan.key,
+   140→          name: plan.name,
+   141→          description: plan.description || FALLBACK_PLANS.find((fixture) => fixture.key === plan.key)?.description || '',
+   142→          monthlyPrice: plan.customPricing ? null : plan.monthlyPrice,
+   143→          maxEmployees: plan.maxEmployees,
+   144→          limit: plan.maxEmployees === null ? '75+ employees' : `Up to ${plan.maxEmployees} employees`,
+   145→          featured: FALLBACK_PLANS.find((fixture) => fixture.key === plan.key)?.featured,
+   146→        }))
+   147→        // Keep the brochure's display order (Starter → Enterprise) regardless
+   148→        // of how the catalog API sorts by price.
+   149→        hydrated.sort((a, b) => {
+   150→          const order = (plan: PlanCard) => FALLBACK_PLANS.findIndex((fixture) => fixture.key === plan.key)
+   151→          return order(a) - order(b)
+   152→        })
+   153→        if (hydrated.length > 0) setPlans(hydrated)
+   154→      })
+   155→      .catch(() => undefined)
+   156→    return () => { cancelled = true }
+   157→  }, [])
+   158→
+   159→  useEffect(() => {
+   160→    const sectionIds = NAV_LINKS.map(([id]) => id)
+   161→    const observer = new IntersectionObserver((entries) => {
+   162→      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+   163→      if (visible) setActiveSection(visible.target.id)
+   164→    }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.4, 0.8] })
+   165→    sectionIds.forEach((id) => { const element = document.getElementById(id); if (element) observer.observe(element) })
+   166→    return () => observer.disconnect()
+   167→  }, [])
+   168→
+   169→  useEffect(() => {
+   170→    const revealItems = Array.from(document.querySelectorAll<HTMLElement>('.marketing-shell .reveal'))
+   171→    const revealObserver = new IntersectionObserver((entries) => {
+   172→      entries.forEach((entry) => {
+   173→        if (entry.isIntersecting) {
+   174→          entry.target.classList.add('is-visible')
+   175→          revealObserver.unobserve(entry.target)
+   176→        }
+   177→      })
+   178→    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' })
+   179→    revealItems.forEach((item) => revealObserver.observe(item))
+   180→    return () => revealObserver.disconnect()
+   181→  }, [])
+   182→
+   183→  const onCtaSubmit = (event: FormEvent<HTMLFormElement>) => {
+   184→    event.preventDefault()
+   185→    const email = ctaEmail.trim()
+   186→    router.push(email ? `/start-free-trial?email=${encodeURIComponent(email)}` : '/start-free-trial')
+   187→  }
+   188→
+   189→  return (
+   190→    <main className="marketing-shell min-h-screen bg-[#f4f6f8] text-[#17211b]">
+   191→      {/* ============================= NAV ============================= */}
+   192→      <header className="sticky top-0 z-30 border-b border-[#dce4e1] bg-[#f4f6f8]/90 backdrop-blur">
+   193→        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
+   194→          <Link href="/" className="flex items-center gap-2.5" aria-label="NIWMS by Natural Intellects — home">
+   195→            <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Natural%20Intellects%20LTD%20LOGO-kW8y0UnJCLLYKZinLc70NoJI9YPSup.png" alt="Natural Intellects Ltd" className="h-9 w-9 rounded-full object-cover" />
+   196→            <span className="text-lg font-bold tracking-tight text-[#123c36]">NIWMS</span>
+   197→          </Link>
+   198→          <nav className="hidden items-center gap-8 text-sm font-medium text-[#5b6865] lg:flex" aria-label="Primary navigation">
+   199→            {NAV_LINKS.map(([id, label]) => (
+   200→              <a key={id} href={`#${id}`} className={`transition-colors hover:text-[#123c36] ${activeSection === id ? 'font-semibold text-[#123c36]' : ''}`}>{label}</a>
+   201→            ))}
+   202→          </nav>
+   203→          <div className="hidden items-center gap-2 lg:flex">
+   204→            <Link href="/login" className="rounded-lg px-4 py-2 text-sm font-semibold text-[#123c36] transition-colors hover:bg-[#e9f0ee]">Log In</Link>
+   205→            <Link href="/start-free-trial" className="rounded-lg bg-[#123c36] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:-translate-y-px hover:bg-[#1d5249]">Start Free Trial</Link>
+   206→          </div>
+   207→          <button type="button" className="rounded-lg p-2 text-[#123c36] lg:hidden" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
+   208→            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+   209→          </button>
+   210→        </div>
+   211→        {menuOpen && (
+   212→          <nav className="border-t border-[#dce4e1] bg-[#f4f6f8] px-5 py-4 lg:hidden" aria-label="Mobile navigation">
+   213→            <div className="flex flex-col gap-1">
+   214→              {NAV_LINKS.map(([id, label]) => (
+   215→                <a key={id} href={`#${id}`} className="rounded-lg px-3 py-2.5 text-sm font-medium text-[#3c4a46] hover:bg-[#e9f0ee]" onClick={() => setMenuOpen(false)}>{label}</a>
+   216→              ))}
+   217→            </div>
+   218→            <div className="mt-3 flex flex-col gap-2 border-t border-[#dce4e1] pt-3">
+   219→              <Link href="/login" className="rounded-lg border border-[#d2ddda] bg-white px-4 py-2.5 text-center text-sm font-semibold text-[#123c36]" onClick={() => setMenuOpen(false)}>Log In</Link>
+   220→              <Link href="/start-free-trial" className="rounded-lg bg-[#123c36] px-4 py-2.5 text-center text-sm font-semibold text-white" onClick={() => setMenuOpen(false)}>Start Free Trial</Link>
+   221→            </div>
+   222→          </nav>
+   223→        )}
+   224→      </header>
+   225→
+   226→      {/* ============================= HERO ============================ */}
+   227→      <section className="hero-reveal relative mx-auto grid max-w-7xl items-center gap-14 px-5 pb-20 pt-12 lg:grid-cols-[minmax(0,43fr)_minmax(0,57fr)] lg:gap-10 lg:px-8 lg:pb-28 lg:pt-16">
+   228→        <div className="relative z-10">
+   229→          <Link href="#features" className="group mb-6 inline-flex items-center gap-2 rounded-full border border-[#dce4e1] bg-white/80 py-1.5 pl-1.5 pr-3 text-xs font-medium text-[#4c5a56] shadow-sm transition-colors hover:border-[#c47b32]/40">
+   230→            <span className="rounded-full bg-[#123c36] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">New</span>
+   231→            Reporting intelligence is here
+   232→            <ChevronRight className="h-3.5 w-3.5 text-[#c47b32] transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+   233→          </Link>
+   234→          <h1 className="max-w-xl text-balance text-5xl font-bold leading-[1.05] tracking-[-0.035em] text-[#14201c] sm:text-6xl lg:text-[3.6rem]">
+   235→            Turn Daily Work
+   236→            <br />
+   237→            <span className="text-[#c47b32]">Into Clear<br />Workforce Insight.</span>
+   238→          </h1>
+   239→          <p className="mt-6 max-w-lg text-base leading-7 text-[#5b6865] sm:text-lg sm:leading-8">
+   240→            NIWMS gives organizations a structured way to capture daily employee activity, monitor reporting, and turn monthly work into clear management reports.
+   241→          </p>
+   242→          <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+   243→            <Link href="/start-free-trial" className="inline-flex items-center justify-center rounded-xl bg-[#123c36] px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#123c36]/20 transition-all hover:-translate-y-0.5 hover:bg-[#1d5249]">
+   244→              Start Free Trial <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+   245→            </Link>
+   246→            <a href="#how-it-works" className="inline-flex items-center justify-center gap-2.5 rounded-xl border border-[#dce4e1] bg-white px-6 py-3.5 text-sm font-semibold text-[#123c36] shadow-sm transition-colors hover:border-[#c47b32]/50 hover:bg-[#fbfcf8]">
+   247→              <span className="grid h-6 w-6 place-items-center rounded-full bg-[#f5eadb]" aria-hidden="true">
+   248→                <Play className="h-3 w-3 fill-[#c47b32] text-[#c47b32]" />
+   249→              </span>
+   250→              See How It Works
+   251→            </a>
+   252→          </div>
+   253→          <p className="mt-8 flex items-center gap-2.5 text-xs font-medium text-[#738078]">
+   254→            <ShieldCheck className="h-4 w-4 shrink-0 text-[#356247]" aria-hidden="true" />
+   255→            Built for organizations that need structured workforce reporting.
+   256→          </p>
+   257→        </div>
+   258→        <DashboardPreview />
+   259→      </section>
+   260→
+   261→      {/* =========================== FEATURES ========================== */}
+   262→      <section id="features" className="scroll-mt-20 border-y border-[#dce4e1] bg-white px-5 py-20 lg:px-8 lg:py-24">
+   263→        <div className="mx-auto max-w-7xl">
+   264→          <div className="mx-auto max-w-2xl text-center">
+   265→            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">Features</p>
+   266→            <h2 className="mt-4 text-3xl font-bold tracking-[-0.03em] text-[#14201c] sm:text-4xl lg:text-[2.6rem] lg:leading-[1.15]">Everything you need to understand your workforce.</h2>
+   267→          </div>
+   268→          <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+   269→            {FEATURES.map(({ icon: Icon, title, text, card, chip }) => (
+   270→              <article key={title} className={`reveal reveal-up flex flex-col rounded-2xl p-7 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_18px_40px_-18px_rgba(18,60,54,0.28)] ${card}`}>
+   271→                <span className={`grid h-12 w-12 place-items-center rounded-xl shadow-sm ${chip}`} aria-hidden="true">
+   272→                  <Icon className="h-5.5 w-5.5 text-white" />
+   273→                </span>
+   274→                <h3 className="mt-7 text-center text-lg font-bold tracking-tight text-[#14201c]">{title}</h3>
+   275→                <p className="mt-3 text-center text-sm leading-6 text-[#5b6865]">{text}</p>
+   276→              </article>
+   277→            ))}
+   278→          </div>
+   279→        </div>
+   280→      </section>
+   281→
+   282→      {/* ========================= HOW IT WORKS ======================== */}
+   283→      <section id="how-it-works" className="scroll-mt-20 px-5 py-20 lg:px-8 lg:py-28">
+   284→        <div className="mx-auto grid max-w-7xl items-center gap-14 lg:grid-cols-[minmax(0,53fr)_minmax(0,47fr)] lg:gap-16">
+   285→          <HiwVisual />
+   286→          <div>
+   287→            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">How It Works</p>
+   288→            <h2 className="mt-4 text-3xl font-bold tracking-[-0.03em] text-[#14201c] sm:text-4xl lg:text-[2.6rem] lg:leading-[1.15]">From daily activity to management insight.</h2>
+   289→            <div className="relative mt-10">
+   290→              <span aria-hidden="true" className="absolute bottom-6 left-[19px] top-6 w-px bg-[#dce4e1]" />
+   291→              {STEPS.map((step) => (
+   292→                <div key={step.number} className="relative flex gap-5 pb-9 last:pb-0">
+   293→                  <span className="relative z-10 grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#dce4e1] bg-[#e9f0ee] text-sm font-bold text-[#b2761b]" aria-hidden="true">{step.number}</span>
+   294→                  <div className="pt-1">
+   295→                    <h3 className="text-base font-bold text-[#14201c]">{step.title}</h3>
+   296→                    <p className="mt-1.5 text-sm leading-6 text-[#5b6865]">{step.text}</p>
+   297→                  </div>
+   298→                </div>
+   299→              ))}
+   300→            </div>
+   301→          </div>
+   302→        </div>
+   303→      </section>
+   304→
+   305→      {/* ============================ PRICING ========================== */}
+   306→      <section id="pricing" className="scroll-mt-20 border-y border-[#dce4e1] bg-white px-5 py-20 lg:px-8 lg:py-24">
+   307→        <div className="mx-auto max-w-7xl">
+   308→          <div className="mx-auto max-w-2xl text-center">
+   309→            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">Pricing</p>
+   310→            <h2 className="mt-4 text-3xl font-bold tracking-[-0.03em] text-[#14201c] sm:text-4xl lg:text-[2.6rem] lg:leading-[1.15]">Pricing that fits your organization.</h2>
+   311→            <p className="mt-4 text-sm leading-6 text-[#5b6865]">Every figure below is computed by the same billing engine that would invoice you — the amount, the VAT, the covered dates, and the renewal date are definitive, not estimates.</p>
+   312→          </div>
+   313→          <div className="mt-9 flex justify-center">
+   314→            <div className="flex items-center gap-1 rounded-xl border border-[#dce4e1] bg-[#f4f6f8] p-1 text-sm" role="group" aria-label="Billing interval">
+   315→              {INTERVALS.map((key) => {
+   316→                const reference = plans.find((plan) => plan.featured && plan.monthlyPrice) ?? plans.find((plan) => plan.monthlyPrice)
+   317→                const savePct = reference?.monthlyPrice
+   318→                  ? Math.round((1 - computeQuote({ monthlyPrice: reference.monthlyPrice, interval: key }).effectiveMonthlyPrice / reference.monthlyPrice) * 100)
+   319→                  : 0
+   320→                return (
+   321→                  <button key={key} type="button" aria-pressed={interval === key} onClick={() => setInterval(key)} className={`rounded-lg px-4 py-2 font-semibold transition-colors ${interval === key ? 'bg-[#123c36] text-white shadow-sm' : 'text-[#5b6865] hover:text-[#123c36]'}`}>
+   322→                    {key === 'monthly' ? 'Monthly' : key === 'quarterly' ? 'Quarterly' : 'Annual'}
+   323→                    {savePct > 0 && <span className={`ml-1.5 text-xs font-bold ${interval === key ? 'text-[#e9b44c]' : 'text-[#c47b32]'}`}>−{savePct}%</span>}
+   324→                  </button>
+   325→                )
+   326→              })}
+   327→            </div>
+   328→          </div>
+   329→          <p className="mt-3 text-center text-[11px] text-[#829086]">Prices exclude VAT · 18% added at billing</p>
+   330→          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+   331→            {plans.map((plan) => {
+   332→              const custom = plan.monthlyPrice === null
+   333→              const quote = custom ? null : computeQuote({ monthlyPrice: plan.monthlyPrice as number, interval })
+   334→              const savingsPct = quote && quote.monthlyEquivalentTotal > 0 ? Math.round((quote.savings / quote.monthlyEquivalentTotal) * 100) : 0
+   335→              return (
+   336→                <article key={plan.key} className={`reveal reveal-up relative flex flex-col rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_-18px_rgba(18,60,54,0.28)] ${plan.featured ? 'border-[#c47b32] bg-[#fbf4e4] shadow-[0_14px_36px_-18px_rgba(196,123,50,0.45)]' : 'border-[#dce4e1] bg-white'}`}>
+   337→                  <div className="flex items-center justify-between">
+   338→                    <h3 className="text-base font-bold text-[#14201c]">{plan.name}</h3>
+   339→                    {plan.featured && <span className="rounded-full bg-[#c47b32] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">Recommended</span>}
+   340→                  </div>
+   341→                  {custom ? (
+   342→                    <p className="mt-6 text-3xl font-bold tracking-tight text-[#14201c]">Custom<span className="text-sm font-medium text-[#829086]"> pricing</span></p>
+   343→                  ) : (
+   344→                    <>
+   345→                      <p className="mt-6 text-3xl font-bold tracking-tight text-[#14201c]">{ugx(quote!.effectiveMonthlyPrice)}<span className="text-sm font-medium text-[#829086]"> / month</span></p>
+   346→                      <p className="mt-1.5 text-xs leading-5 text-[#5b6865]">
+   347→                        Billed <span className="font-semibold text-[#304237]">{ugx(quote!.total)}</span> every {quote!.monthsCovered === 1 ? 'month' : `${quote!.monthsCovered} months`} · incl. VAT {ugx(quote!.vatAmount)}
+   348→                      </p>
+   349→                      {quote!.savings > 0 && (
+   350→                        <p className="mt-2.5 inline-flex w-fit items-center gap-1 rounded-full bg-[#e7f0e4] px-2.5 py-1 text-[11px] font-semibold text-[#356247]" aria-label={`Save ${ugx(quote!.savings)} compared to monthly billing`}>
+   351→                          <Check className="h-3 w-3" /> Save {ugx(quote!.savings)} ({savingsPct}%)
+   352→                        </p>
+   353→                      )}
+   354→                    </>
+   355→                  )}
+   356→                  <p className="mt-4 text-sm font-medium text-[#304237]">{plan.limit}</p>
+   357→                  <p className="mt-2 min-h-10 text-sm leading-6 text-[#5b6865]">{plan.description}</p>
+   358→                  <Link href={custom ? '/start-free-trial' : `/start-free-trial?plan=${plan.key}&interval=${interval}`} className={`mt-6 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all hover:-translate-y-px ${plan.featured ? 'bg-[#123c36] text-white hover:bg-[#1d5249]' : 'border border-[#d2ddda] bg-white text-[#123c36] hover:border-[#123c36]/40 hover:bg-[#f4f6f8]'}`}>
+   359→                    Get started <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+   360→                  </Link>
+   361→                </article>
+   362→              )
+   363→            })}
+   364→          </div>
+   365→          <PricingCalculator interval={interval} plans={plans} />
+   366→        </div>
+   367→      </section>
+   368→
+   369→      {/* ============================== FAQ ============================ */}
+   370→      <section id="faq" className="scroll-mt-20 px-5 py-20 lg:px-8 lg:py-24">
+   371→        <div className="mx-auto max-w-3xl">
+   372→          <div className="text-center">
+   373→            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">FAQ</p>
+   374→            <h2 className="mt-4 text-3xl font-bold tracking-[-0.03em] text-[#14201c] sm:text-4xl">Questions, answered.</h2>
+   375→          </div>
+   376→          <div className="mt-10 space-y-3">
+   377→            {FAQS.map(([question, answer]) => (
+   378→              <details key={question} className="group rounded-xl border border-[#dce4e1] bg-white px-5 py-1 transition-colors open:bg-white hover:border-[#c47b32]/40">
+   379→                <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-4 text-[15px] font-semibold text-[#14201c] [&::-webkit-details-marker]:hidden">
+   380→                  {question}
+   381→                  <ChevronDown className="h-5 w-5 shrink-0 text-[#c47b32] transition-transform group-open:rotate-180" aria-hidden="true" />
+   382→                </summary>
+   383→                <p className="max-w-2xl pb-4 text-sm leading-6 text-[#5b6865]">{answer}</p>
+   384→              </details>
+   385→            ))}
+   386→          </div>
+   387→        </div>
+   388→      </section>
+   389→
+   390→      {/* =========================== CTA BANNER ======================== */}
+   391→      <section className="px-5 pb-20 lg:px-8 lg:pb-24" aria-label="Get started with NIWMS">
+   392→        <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] bg-[#123c36] px-6 py-14 text-white sm:px-10 lg:px-14 lg:py-16">
+   393→          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full border-[28px] border-white/[0.05]" />
+   394→          <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-16 h-64 w-64 rounded-full border-[24px] border-[#c47b32]/15" />
+   395→          <div className="relative grid items-center gap-10 lg:grid-cols-[1.15fr_1fr] lg:gap-14">
+   396→            <div>
+   397→              <h2 className="text-3xl font-bold leading-[1.15] tracking-[-0.03em] sm:text-4xl">Make workforce reporting part of the workflow.</h2>
+   398→              <p className="mt-4 max-w-md text-[15px] leading-7 text-[#c4d0c5]">Start with a 14-day trial and see how NIWMS turns daily employee activity into management-ready insight.</p>
+   399→            </div>
+   400→            <div>
+   401→              <form onSubmit={onCtaSubmit} className="flex flex-col gap-3 sm:flex-row">
+   402→                <label htmlFor="cta-email" className="sr-only">Work email</label>
+   403→                <input
+   404→                  id="cta-email"
+   405→                  type="email"
+   406→                  required
+   407→                  value={ctaEmail}
+   408→                  onChange={(event) => setCtaEmail(event.target.value)}
+   409→                  placeholder="Enter your work email"
+   410→                  autoComplete="email"
+   411→                  className="w-full flex-1 rounded-xl border border-white/20 bg-white px-4 py-3.5 text-sm text-[#14201c] outline-none transition placeholder:text-[#829086] focus:border-[#e9b44c] focus:ring-2 focus:ring-[#e9b44c]/40"
+   412→                />
+   413→                <button type="submit" className="inline-flex items-center justify-center whitespace-nowrap rounded-xl bg-[#c47b32] px-6 py-3.5 text-sm font-semibold text-white transition-all hover:-translate-y-px hover:bg-[#b2761b]">
+   414→                  Start Free Trial <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+   415→                </button>
+   416→              </form>
+   417→              <p className="mt-3.5 flex items-center gap-1.5 text-xs text-[#9fb3ac]"><Check className="h-3.5 w-3.5 text-[#e9b44c]" aria-hidden="true" /> 14 days · Full features · No payment details required</p>
+   418→            </div>
+   419→          </div>
+   420→        </div>
+   421→      </section>
+   422→
+   423→      {/* ============================= FOOTER ========================== */}
+   424→      <footer className="mt-auto border-t border-[#dce4e1] bg-white">
+   425→        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-14 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:px-8">
+   426→          <div>
+   427→            <Link href="/" className="flex items-center gap-2.5" aria-label="Natural Intellects home">
+   428→              <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Natural%20Intellects%20LTD%20LOGO-kW8y0UnJCLLYKZinLc70NoJI9YPSup.png" alt="Natural Intellects Ltd" className="h-10 w-10 rounded-full object-cover" />
+   429→              <span className="text-base font-bold tracking-tight text-[#14201c]">Natural Intellects</span>
+   430→            </Link>
+   431→            <p className="mt-4 max-w-xs text-sm leading-6 text-[#5b6865]">NIWMS is the workforce reporting platform by Natural Intellects — built to turn daily employee activity into clear management insight.</p>
+   432→          </div>
+   433→          <nav aria-label="Product">
+   434→            <h3 className="text-sm font-bold text-[#14201c]">Product</h3>
+   435→            <ul className="mt-4 space-y-2.5 text-sm text-[#5b6865]">
+   436→              <li><a href="#features" className="transition-colors hover:text-[#123c36]">Features</a></li>
+   437→              <li><a href="#how-it-works" className="transition-colors hover:text-[#123c36]">How It Works</a></li>
+   438→              <li><a href="#pricing" className="transition-colors hover:text-[#123c36]">Pricing</a></li>
+   439→            </ul>
+   440→          </nav>
+   441→          <nav aria-label="Company">
+   442→            <h3 className="text-sm font-bold text-[#14201c]">Company</h3>
+   443→            <ul className="mt-4 space-y-2.5 text-sm text-[#5b6865]">
+   444→              <li><Link href="/" className="transition-colors hover:text-[#123c36]">Natural Intellects</Link></li>
+   445→              <li><Link href="/start-free-trial" className="transition-colors hover:text-[#123c36]">Start Free Trial</Link></li>
+   446→              <li><a href="mailto:hello@naturalintellects.com" className="transition-colors hover:text-[#123c36]">Contact</a></li>
+   447→            </ul>
+   448→          </nav>
+   449→          <nav aria-label="Support">
+   450→            <h3 className="text-sm font-bold text-[#14201c]">Support</h3>
+   451→            <ul className="mt-4 space-y-2.5 text-sm text-[#5b6865]">
+   452→              <li><a href="#faq" className="transition-colors hover:text-[#123c36]">FAQ</a></li>
+   453→              <li><a href="mailto:hello@naturalintellects.com" className="transition-colors hover:text-[#123c36]">Contact support</a></li>
+   454→              <li><Link href="/login" className="transition-colors hover:text-[#123c36]">Log In</Link></li>
+   455→            </ul>
+   456→          </nav>
+   457→        </div>
+   458→        <div className="border-t border-[#e4eae8]">
+   459→          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-5 py-6 text-xs text-[#829086] sm:flex-row lg:px-8">
+   460→            <p>© {new Date().getFullYear()} Natural Intellects Ltd. All rights reserved.</p>
+   461→            <p>NIWMS — Workforce reporting by Natural Intellects</p>
+   462→          </div>
+   463→        </div>
+   464→      </footer>
+   465→    </main>
+   466→  )
+   467→}
+   468→
+   469→/* ------------------------------------------------------------------ */
+   470→/* Hero product preview — a large NIWMS manager dashboard              */
+   471→/* ------------------------------------------------------------------ */
+   472→
+   473→const SIDEBAR_ITEMS = [
+   474→  { icon: LayoutDashboard, label: 'Dashboard', active: true },
+   475→  { icon: UsersRound, label: 'Employees' },
+   476→  { icon: ClipboardCheck, label: 'Daily Reports' },
+   477→  { icon: FileSpreadsheet, label: 'Monthly Reports' },
+   478→  { icon: BellRing, label: 'Notifications', badge: '3' },
+   479→  { icon: Settings, label: 'Settings' },
+   480→]
+   481→
+   482→const PREVIEW_STATS = [
+   483→  { label: 'Reports Today', value: '24', delta: '+3 vs yesterday', tone: 'text-[#356247]' },
+   484→  { label: 'Submitted', value: '21', delta: '87.5% of team', tone: 'text-[#356247]' },
+   485→  { label: 'Missing', value: '3', delta: 'Needs follow-up', tone: 'text-[#b2761b]' },
+   486→  { label: 'Active Employees', value: '24', delta: 'Across 4 departments', tone: 'text-[#5b6865]' },
+   487→]
+   488→
+   489→const ACTIVITY_BARS = [
+   490→  { day: 'Mon', value: 18 },
+   491→  { day: 'Tue', value: 21 },
+   492→  { day: 'Wed', value: 19 },
+   493→  { day: 'Thu', value: 24, peak: true },
+   494→  { day: 'Fri', value: 22 },
+   495→  { day: 'Sat', value: 12 },
+   496→  { day: 'Sun', value: 9 },
+   497→]
+   498→
+   499→const WORK_CATEGORIES = [
+   500→  { label: 'Field work', pct: 38, color: 'bg-[#123c36]' },
+   501→  { label: 'Client meetings', pct: 27, color: 'bg-[#38766b]' },
+   502→  { label: 'Administration', pct: 20, color: 'bg-[#c47b32]' },
+   503→  { label: 'Training', pct: 15, color: 'bg-[#cbd6cb]' },
+   504→]
+   505→
+   506→const RECENT_REPORTS = [
+   507→  { initials: 'SK', name: 'Sarah K.', dept: 'Operations', status: 'Submitted', time: '9:41 AM', chip: 'bg-[#e7f0e4] text-[#356247]', avatar: 'bg-[#123c36]' },
+   508→  { initials: 'DM', name: 'David M.', dept: 'Finance', status: 'Submitted', time: '9:12 AM', chip: 'bg-[#e7f0e4] text-[#356247]', avatar: 'bg-[#356247]' },
+   509→  { initials: 'GA', name: 'Grace A.', dept: 'Programs', status: 'Missing', time: '—', chip: 'bg-[#f5eadb] text-[#8a5a13]', avatar: 'bg-[#c47b32]' },
+   510→  { initials: 'PO', name: 'Peter O.', dept: 'Logistics', status: 'Late', time: '8:04 AM', chip: 'bg-[#eef1f0] text-[#5b6865]', avatar: 'bg-[#7d958f]' },
+   511→]
+   512→
+   513→function DashboardPreview() {
+   514→  return (
+   515→    <div className="hero-preview relative" data-testid="hero-dashboard">
+   516→      <div aria-hidden="true" className="absolute -inset-x-4 -top-6 bottom-2 rounded-[2.5rem] bg-gradient-to-br from-[#123c36]/10 via-transparent to-[#c47b32]/10 blur-2xl" />
+   517→      <div className="relative overflow-hidden rounded-2xl border border-[#d5dfdb] bg-white shadow-[0_30px_80px_-24px_rgba(18,60,54,0.4)]">
+   518→        {/* App top bar */}
+   519→        <div className="flex items-center justify-between border-b border-[#e4eae8] px-4 py-3">
+   520→          <div className="flex items-center gap-2.5">
+   521→            <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#123c36] text-xs font-bold text-white" aria-hidden="true">N</span>
+   522→            <span className="text-sm font-bold tracking-tight text-[#14201c]">NIWMS</span>
+   523→            <span className="ml-1 hidden rounded-md bg-[#f4f6f8] px-2 py-1 text-[10px] font-medium text-[#5b6865] sm:block">Acme Services</span>
+   524→          </div>
+   525→          <div className="flex items-center gap-3">
+   526→            <span className="hidden items-center gap-1.5 rounded-lg border border-[#e4eae8] bg-[#f8faf9] px-2.5 py-1.5 text-[10px] text-[#829086] sm:flex" aria-hidden="true">
+   527→              <Search className="h-3 w-3" /> Search reports…
+   528→            </span>
+   529→            <span className="relative text-[#5b6865]" aria-hidden="true">
+   530→              <BellRing className="h-4 w-4" />
+   531→              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#c47b32]" />
+   532→            </span>
+   533→            <span className="grid h-7 w-7 place-items-center rounded-full bg-[#e9f0ee] text-[10px] font-bold text-[#123c36]" aria-hidden="true">DN</span>
+   534→          </div>
+   535→        </div>
+   536→        <div className="grid grid-cols-[56px_1fr] sm:grid-cols-[168px_1fr]">
+   537→          {/* Sidebar */}
+   538→          <aside className="flex flex-col gap-1 bg-[#123c36] p-2.5 sm:p-3">
+   539→            {SIDEBAR_ITEMS.map(({ icon: Icon, label, active, badge }) => (
+   540→              <span key={label} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10.5px] font-medium sm:gap-2.5 sm:px-2.5 ${active ? 'bg-white/15 text-white' : 'text-[#b9cdc5]'}`} title={label}>
+   541→                <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+   542→                <span className="hidden truncate sm:inline">{label}</span>
+   543→                {badge && <span className="ml-auto hidden rounded-full bg-[#c47b32] px-1.5 text-[9px] font-bold text-white sm:inline">{badge}</span>}
+   544→              </span>
+   545→            ))}
+   546→          </aside>
+   547→          {/* Main panel */}
+   548→          <div className="min-w-0 bg-[#f7f9f7] p-3.5 sm:p-5">
+   549→            <div className="flex flex-wrap items-start justify-between gap-2">
+   550→              <div>
+   551→                <h2 className="text-base font-bold text-[#14201c] sm:text-lg">Good morning, Diana <span aria-hidden="true">👋</span></h2>
+   552→                <p className="mt-0.5 text-[11px] text-[#829086]">Here&apos;s how reporting looks across your organization today.</p>
+   553→              </div>
+   554→              <span className="rounded-full border border-[#e4eae8] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#5b6865]">Today · 9:52 AM</span>
+   555→            </div>
+   556→            <div className="mt-4 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+   557→              {PREVIEW_STATS.map((stat) => (
+   558→                <div key={stat.label} className="rounded-xl border border-[#e4eae8] bg-white p-3">
+   559→                  <p className="text-[10px] font-medium text-[#829086]">{stat.label}</p>
+   560→                  <p className="mt-1 text-xl font-bold tracking-tight text-[#14201c] sm:text-2xl">{stat.value}</p>
+   561→                  <p className={`mt-0.5 text-[9.5px] font-medium ${stat.tone}`}>{stat.delta}</p>
+   562→                </div>
+   563→              ))}
+   564→            </div>
+   565→            <div className="mt-2.5 grid gap-2.5 lg:grid-cols-[1.5fr_1fr]">
+   566→              {/* Reporting activity */}
+   567→              <div className="rounded-xl border border-[#e4eae8] bg-white p-3.5 sm:p-4">
+   568→                <div className="flex items-center justify-between">
+   569→                  <p className="text-xs font-bold text-[#14201c]">Reporting Activity</p>
+   570→                  <span className="text-[10px] font-medium text-[#829086]">Last 7 days</span>
+   571→                </div>
+   572→                <div className="mt-3 flex h-20 items-end gap-2 sm:h-24" aria-hidden="true">
+   573→                  {ACTIVITY_BARS.map((bar) => (
+   574→                    <span key={bar.day} className={`w-full flex-1 rounded-t-md opacity-90 ${bar.peak ? 'bg-[#c47b32]' : 'bg-[#123c36]'}`} style={{ height: `${(bar.value / 24) * 100}%` }} />
+   575→                  ))}
+   576→                </div>
+   577→                <div className="mt-1 flex gap-2 text-center text-[8.5px] font-medium text-[#829086]" aria-hidden="true">
+   578→                  {ACTIVITY_BARS.map((bar) => <span key={bar.day} className="flex-1">{bar.day}</span>)}
+   579→                </div>
+   580→                <div className="mt-3 border-t border-[#eef1f0] pt-3">
+   581→                  <div className="flex h-1.5 w-full overflow-hidden rounded-full" aria-hidden="true">
+   582→                    {WORK_CATEGORIES.map((cat) => <span key={cat.label} className={cat.color} style={{ width: `${cat.pct}%` }} />)}
+   583→                  </div>
+   584→                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] font-medium text-[#5b6865]">
+   585→                    {WORK_CATEGORIES.map((cat) => (
+   586→                      <span key={cat.label} className="flex items-center gap-1">
+   587→                        <span className={`h-1.5 w-1.5 rounded-full ${cat.color}`} aria-hidden="true" /> {cat.label} {cat.pct}%
+   588→                      </span>
+   589→                    ))}
+   590→                  </div>
+   591→                </div>
+   592→              </div>
+   593→              {/* Recent reports */}
+   594→              <div className="rounded-xl border border-[#e4eae8] bg-white p-3.5 sm:p-4">
+   595→                <div className="flex items-center justify-between">
+   596→                  <p className="text-xs font-bold text-[#14201c]">Recent Reports</p>
+   597→                  <span className="text-[10px] font-semibold text-[#c47b32]">View all</span>
+   598→                </div>
+   599→                <ul className="mt-3 space-y-2.5">
+   600→                  {RECENT_REPORTS.map((report) => (
+   601→                    <li key={report.name} className="flex items-center gap-2.5">
+   602→                      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[9px] font-bold text-white ${report.avatar}`} aria-hidden="true">{report.initials}</span>
+   603→                      <span className="min-w-0 flex-1">
+   604→                        <span className="block truncate text-[11px] font-semibold text-[#14201c]">{report.name}</span>
+   605→                        <span className="block text-[9.5px] text-[#829086]">{report.dept}</span>
+   606→                      </span>
+   607→                      <span className="text-right">
+   608→                        <span className={`inline-block rounded-full px-2 py-0.5 text-[9px] font-bold ${report.chip}`}>{report.status}</span>
+   609→                        <span className="mt-0.5 block text-[9px] text-[#829086]">{report.time}</span>
+   610→                      </span>
+   611→                    </li>
+   612→                  ))}
+   613→                </ul>
+   614→              </div>
+   615→            </div>
+   616→          </div>
+   617→        </div>
+   618→      </div>
+   619→      {/* Floating status chip — subtle controlled overlap */}
+   620→      <div className="float-chip absolute -bottom-5 left-6 flex items-center gap-2.5 rounded-xl border border-[#e4eae8] bg-white px-3.5 py-2.5 shadow-[0_16px_40px_-14px_rgba(18,60,54,0.35)] sm:left-9">
+   621→        <CheckCircle2 className="h-4.5 w-4.5 text-[#356247]" aria-hidden="true" />
+   622→        <span>
+   623→          <span className="block text-[11px] font-bold text-[#14201c]">Monthly report ready</span>
+   624→          <span className="block text-[9.5px] text-[#829086]">August · 24 employees · Excel export</span>
+   625→        </span>
+   626→      </div>
+   627→    </div>
+   628→  )
+   629→}
+   630→
+   631→/* ------------------------------------------------------------------ */
+   632→/* How-it-works visual — the daily capture flow with layered chips     */
+   633→/* ------------------------------------------------------------------ */
+   634→
+   635→function HiwVisual() {
+   636→  return (
+   637→    <div className="hiw-visual relative">
+   638→      <div className="rounded-3xl border border-[#dce4e1] bg-gradient-to-br from-white via-white to-[#e9f0ee] p-5 pb-14 shadow-[0_20px_50px_-24px_rgba(18,60,54,0.25)] sm:p-7 sm:pb-16">
+   639→        <div className="flex items-center gap-2.5">
+   640→          <p className="text-sm font-bold text-[#14201c]">Daily Activity Report</p>
+   641→          <span className="rounded-full bg-[#f5eadb] px-2.5 py-1 text-[10px] font-bold text-[#8a5a13]">Draft</span>
+   642→        </div>
+   643→        <div className="mt-4 rounded-2xl border border-[#e4eae8] bg-white p-4 shadow-sm sm:p-5">
+   644→          <div className="flex items-center gap-2.5">
+   645→            <span className="grid h-8 w-8 place-items-center rounded-full bg-[#123c36] text-[10px] font-bold text-white" aria-hidden="true">SB</span>
+   646→            <span>
+   647→              <span className="block text-xs font-bold text-[#14201c]">Sarah B. · Operations</span>
+   648→              <span className="block text-[10px] text-[#829086]">Today · Auto-saves as she types</span>
+   649→            </span>
+   650→          </div>
+   651→          <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#829086]">What did you accomplish today?</p>
+   652→          <p className="mt-2 rounded-xl border border-[#e4eae8] bg-[#f8faf9] p-3.5 text-[12px] leading-5 text-[#3c4a46]">
+   653→            Completed the quarterly stock reconciliation, flagged two variances for the finance team, and shared the summary sheet with department heads.
+   654→          </p>
+   655→          <div className="mt-3 flex flex-wrap gap-1.5">
+   656→            <span className="rounded-full bg-[#e9f0ee] px-2.5 py-1 text-[10px] font-semibold text-[#356247]">Field work</span>
+   657→            <span className="rounded-full bg-[#f5eadb] px-2.5 py-1 text-[10px] font-semibold text-[#8a5a13]">Reporting</span>
+   658→          </div>
+   659→          <div className="mt-4 flex items-center justify-between border-t border-[#eef1f0] pt-3.5">
+   660→            <span className="flex items-center gap-2 text-[10px] font-medium text-[#5b6865]">
+   661→              <span className="grid h-6 w-6 place-items-center rounded-full bg-[#f5eadb]" aria-hidden="true"><Mic className="h-3 w-3 text-[#b2761b]" /></span>
+   662→              Voice note attached · 0:42
+   663→              <span className="flex items-end gap-0.5" aria-hidden="true">
+   664→                {[6, 10, 7, 12, 8, 11, 5, 9].map((height, index) => <span key={index} className="w-0.5 rounded-full bg-[#c47b32]/70" style={{ height: `${height}px` }} />)}
+   665→              </span>
+   666→            </span>
+   667→            <span className="rounded-lg bg-[#123c36] px-3.5 py-2 text-[11px] font-bold text-white">Submit report</span>
+   668→          </div>
+   669→        </div>
+   670→      </div>
+   671→      {/* Layered product chips — straddling the container edges over background, like the reference photo cards */}
+   672→      <div className="float-chip absolute -right-2 top-16 w-44 rounded-xl border border-[#e4eae8] bg-white p-3 shadow-[0_16px_40px_-14px_rgba(18,60,54,0.35)] sm:-right-5 sm:top-20">
+   673→        <div className="flex items-center gap-2">
+   674→          <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#f5eadb]" aria-hidden="true"><FileSpreadsheet className="h-3.5 w-3.5 text-[#b2761b]" /></span>
+   675→          <span className="text-[11px] font-bold text-[#14201c]">Monthly report</span>
+   676→        </div>
+   677→        <p className="mt-1.5 text-[10px] leading-4 text-[#5b6865]">August is compiled and ready to export.</p>
+   678→        <p className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-[#356247]"><Check className="h-3 w-3" aria-hidden="true" /> Ready</p>
+   679→      </div>
+   680→      <div className="float-chip absolute -bottom-4 left-8 w-40 rounded-xl border border-[#e4eae8] bg-white p-3 shadow-[0_16px_40px_-14px_rgba(18,60,54,0.35)] sm:left-16">
+   681→        <p className="text-[10px] font-medium text-[#829086]">Reporting health</p>
+   682→        <p className="mt-0.5 text-xl font-bold tracking-tight text-[#14201c]">92%</p>
+   683→        <p className="mt-0.5 flex items-center gap-1 text-[10px] font-semibold text-[#356247]"><TrendingUp className="h-3 w-3" aria-hidden="true" /> On track this week</p>
+   684→      </div>
+   685→    </div>
+   686→  )
+   687→}
+   688→
+   689→/* ------------------------------------------------------------------ */
+   690→/* Interactive quote calculator                                        */
+   691→/* ------------------------------------------------------------------ */
+   692→
+   693→interface QuoteResponse {
+   694→  plan: { key: string; name: string; monthlyPrice: number; maxEmployees: number | null; customPricing: boolean }
+   695→  interval: BillingInterval
+   696→  seats: number | null
+   697→  fits: boolean
+   698→  quote: Quote
+   699→}
+   700→
+   701→// Interactive quote calculator. The numbers it displays come from the server's
+   702→// /api/billing/quote endpoint — the exact totals, VAT, covered period, and
+   703→// renewal date a subscriber would actually be charged on that plan + interval.
+   704→function PricingCalculator({ interval, plans }: { interval: BillingInterval; plans: PlanCard[] }) {
+   705→  const [seats, setSeats] = useState(24)
+   706→  const [planKey, setPlanKey] = useState('business')
+   707→  const [result, setResult] = useState<QuoteResponse | null>(null)
+   708→  const [refreshing, setRefreshing] = useState(false)
+   709→
+   710→  const pricedPlans = plans.filter((plan) => plan.monthlyPrice !== null)
+   711→  // Derived (not synced) selection: if the currently chosen plan cannot hold
+   712→  // the requested seats, the calculator automatically falls back to the
+   713→  // cheapest plan that can — no cascading setState effects required.
+   714→  const selectedPlan =
+   715→    pricedPlans.find((plan) => plan.key === planKey && plan.maxEmployees !== null && seats <= plan.maxEmployees) ??
+   716→    pricedPlans.find((plan) => plan.maxEmployees !== null && seats <= plan.maxEmployees) ??
+   717→    pricedPlans[pricedPlans.length - 1] ??
+   718→    pricedPlans[0]
+   719→
+   720→  useEffect(() => {
+   721→    if (!selectedPlan || selectedPlan.monthlyPrice === null) return
+   722→    const controller = new AbortController()
+   723→    const timer = setTimeout(() => {
+   724→      setRefreshing(true)
+   725→      fetch(`/api/billing/quote?plan=${selectedPlan.key}&interval=${interval}&seats=${seats}`, { signal: controller.signal })
+   726→        .then((response) => (response.ok ? response.json() : null))
+   727→        .then((body) => { if (body?.quote) setResult(body) })
+   728→        .catch(() => undefined)
+   729→        .finally(() => setRefreshing(false))
+   730→    }, 200)
+   731→    return () => { controller.abort(); clearTimeout(timer) }
+   732→  }, [interval, seats, selectedPlan])
+   733→
+   734→  const quote = result?.quote ?? null
+   735→  const trialHref = `/start-free-trial?plan=${selectedPlan?.key ?? 'business'}&interval=${interval}&seats=${seats}`
+   736→
+   737→  return (
+   738→    <div className="reveal reveal-up mt-6 overflow-hidden rounded-2xl border border-[#dce4e1] bg-white shadow-[0_18px_44px_-24px_rgba(18,60,54,0.25)]" data-testid="pricing-calculator">
+   739→      <div className="grid gap-0 lg:grid-cols-[1fr_1.1fr]">
+   740→        <div className="border-b border-[#dce4e1] p-6 sm:p-8 lg:border-b-0 lg:border-r">
+   741→          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#c47b32]"><UsersRound className="h-4 w-4" /> Size your team</p>
+   742→          <h3 className="mt-3 text-2xl font-bold tracking-[-0.02em] text-[#14201c]">See your real number before you commit.</h3>
+   743→          <p className="mt-2 text-sm leading-6 text-[#5b6865]">Slide to your team size. The calculator picks the plan that fits and quotes the exact amount, dates, and renewal.</p>
+   744→          <div className="mt-7 flex items-end justify-between"><label htmlFor="seats" className="text-sm font-semibold text-[#304237]">Employees</label><span className="rounded-lg bg-[#e9f0ee] px-3 py-1 text-sm font-bold text-[#123c36]" aria-live="polite">{seats}</span></div>
+   745→          <input id="seats" type="range" min={1} max={100} step={1} value={seats} onChange={(event) => setSeats(Number(event.target.value))} className="mt-3 h-2 w-full cursor-pointer accent-[#c47b32]" aria-valuemin={1} aria-valuemax={100} aria-valuenow={seats} />
+   746→          <div className="mt-1 flex justify-between text-[11px] text-[#829086]"><span>1</span><span>25</span><span>50</span><span>75</span><span>100+</span></div>
+   747→          <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Plan">
+   748→            {pricedPlans.map((plan) => (
+   749→              <button key={plan.key} type="button" aria-pressed={selectedPlan?.key === plan.key} onClick={() => setPlanKey(plan.key)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${selectedPlan?.key === plan.key ? 'border-[#123c36] bg-[#123c36] text-white' : 'border-[#d2ddda] text-[#5b6865] hover:bg-[#e9f0ee]'}`}>
+   750→                {plan.name}
+   751→                {plan.maxEmployees !== null && <span className="ml-1 opacity-70">≤{plan.maxEmployees}</span>}
+   752→              </button>
+   753→            ))}
+   754→          </div>
+   755→          {seats > 75 && <p className="mt-3 rounded-lg bg-[#fbf0dc] px-3 py-2 text-xs font-medium text-[#8a5a13]" role="note">Above 75 employees our team tailors an Enterprise plan — the quote shows the Professional rate as a reference.</p>}
+   756→        </div>
+   757→        <div className="bg-[#f7f9f6] p-6 sm:p-8" aria-live="polite">
+   758→          <p className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#c47b32]"><span className="flex items-center gap-2"><Receipt className="h-4 w-4" /> Your quote</span><span className={`flex items-center gap-1.5 text-[10px] font-semibold normal-case tracking-normal text-[#829086] ${refreshing ? 'opacity-100' : 'opacity-70'}`}>{refreshing && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#c47b32]" aria-hidden="true" />}{refreshing ? 'updating…' : 'server-verified'}</span></p>
+   759→          {quote ? (
+   760→            <>
+   761→              <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2">
+   762→                <p className="text-sm font-semibold text-[#304237]">{result?.plan.name} · {quote.intervalLabel} billing · {seats} seat{seats === 1 ? '' : 's'}</p>
+   763→                <p className="text-3xl font-bold tracking-[-0.03em] text-[#14201c]">{ugx(quote.total)}</p>
+   764→              </div>
+   765→              <p className="mt-1 text-xs text-[#829086]">Due today, VAT inclusive</p>
+   766→              <dl className="mt-5 space-y-2.5 text-sm">
+   767→                <div className="flex justify-between gap-4"><dt className="text-[#5b6865]">Effective monthly rate</dt><dd className="font-semibold text-[#304237]">{ugx(quote.effectiveMonthlyPrice)}</dd></div>
+   768→                <div className="flex justify-between gap-4"><dt className="text-[#5b6865]">Subtotal ({quote.monthsCovered} {quote.monthsCovered === 1 ? 'month' : 'months'})</dt><dd className="text-[#304237]">{ugx(quote.subtotal)}</dd></div>
+   769→                <div className="flex justify-between gap-4"><dt className="text-[#5b6865]">VAT ({Math.round(quote.vatRate * 100)}%)</dt><dd className="text-[#304237]">{ugx(quote.vatAmount)}</dd></div>
+   770→                <div className="flex justify-between gap-4 border-t border-[#dce4e1] pt-2.5"><dt className="flex items-center gap-1.5 text-[#5b6865]"><CalendarRange className="h-4 w-4 text-[#c47b32]" /> Period covered</dt><dd className="text-right font-semibold text-[#304237]">{quote.periodStartLabel} → {quote.periodEndLabel}</dd></div>
+   771→                <div className="flex justify-between gap-4"><dt className="text-[#5b6865]">Renews on</dt><dd className="font-semibold text-[#304237]">{quote.periodEndLabel}</dd></div>
+   772→                {quote.savings > 0 && (
+   773→                  <div className="flex justify-between gap-4 rounded-lg bg-[#e7f0e4] px-3 py-2"><dt className="font-semibold text-[#356247]">You save vs monthly billing</dt><dd className="font-bold text-[#356247]">{ugx(quote.savings)} ({quote.savingsPercent}%)</dd></div>
+   774→                )}
+   775→              </dl>
+   776→              <Link href={trialHref} className="mt-6 flex items-center justify-center rounded-xl bg-[#123c36] px-5 py-3.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5" aria-label={`Start free trial on ${result?.plan.name}, billed ${quote.intervalLabel.toLowerCase()}`}>Start with {result?.plan.name} · {quote.intervalLabel} <ArrowRight className="ml-2 h-4 w-4" /></Link>
+   777→              <p className="mt-3 text-center text-[11px] text-[#829086]">No payment during the 14-day trial — your billing interval takes effect when you convert.</p>
+   778→            </>
+   779→          ) : (
+   780→            <div className="mt-6 space-y-3" aria-hidden="true"><div className="h-8 w-40 animate-pulse rounded-lg bg-[#e2e8e0]" /><div className="h-4 w-full animate-pulse rounded bg-[#e2e8e0]" /><div className="h-4 w-3/4 animate-pulse rounded bg-[#e2e8e0]" /><div className="h-4 w-2/3 animate-pulse rounded bg-[#e2e8e0]" /><div className="h-12 w-full animate-pulse rounded-xl bg-[#e2e8e0]" /></div>
+   781→          )}
+   782→        </div>
+   783→      </div>
+   784→    </div>
+   785→  )
+   786→}
+   787→
