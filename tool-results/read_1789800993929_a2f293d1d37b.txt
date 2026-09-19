@@ -1,0 +1,318 @@
+     1→'use client'
+     2→
+     3→import Link from 'next/link'
+     4→import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+     5→import {
+     6→  ArrowRight,
+     7→  BarChart3,
+     8→  BellRing,
+     9→  CalendarRange,
+    10→  Check,
+    11→  ChevronDown,
+    12→  ClipboardCheck,
+    13→  FileSpreadsheet,
+    14→  Headphones,
+    15→  LockKeyhole,
+    16→  Menu,
+    17→  Mic,
+    18→  Receipt,
+    19→  ShieldCheck,
+    20→  UsersRound,
+    21→  X,
+    22→} from 'lucide-react'
+    23→import { computeQuote, type BillingInterval, type Quote } from '@/lib/billing/pricing'
+    24→
+    25→const features = [
+    26→  { icon: ClipboardCheck, title: 'Daily work reporting', text: 'Give every employee a clear, low-friction place to capture meaningful work as it happens.' },
+    27→  { icon: BarChart3, title: 'Management visibility', text: 'See submission health, recurring work, and team activity without chasing spreadsheets.' },
+    28→  { icon: FileSpreadsheet, title: 'Monthly workbooks', text: 'Export structured reports with summaries, statistics, activities, and notes ready to share.' },
+    29→  { icon: BellRing, title: 'Automated reminders', text: 'Keep reporting consistent with organization-aware reminders that respect local working hours.' },
+    30→  { icon: ShieldCheck, title: 'Responsible access', text: 'Tenant-aware access, roles, and audit trails keep workforce data in the right hands.' },
+    31→  { icon: Mic, title: 'Voice-to-text input', text: 'Capture a thought quickly, review it, then submit it as a polished daily activity entry.' },
+    32→]
+    33→
+    34→const demos = [
+    35→  { label: 'For employees', title: 'Make the daily note easy to finish.', text: 'A focused activity capture flow helps people record outcomes, blockers, and next steps before the day disappears.', items: ['Outcome-led prompts', 'Voice-to-text input', 'Draft before submit'] },
+    36→  { label: 'For managers', title: 'See where attention belongs.', text: 'A concise management view surfaces reporting health and patterns without turning work into noise.', items: ['Submission health', 'Team activity signals', 'Clear follow-up cues'] },
+    37→  { label: 'For leadership', title: 'Turn activity into operating context.', text: 'Monthly summaries give leaders a dependable view of what moved, what repeated, and what needs a decision.', items: ['Structured summaries', 'Excel-ready exports', 'Auditable activity'] },
+    38→]
+    39→
+    40→interface PlanCard {
+    41→  key: string
+    42→  name: string
+    43→  description: string
+    44→  /** Whole UGX list price per month; null = custom-priced (Enterprise). */
+    45→  monthlyPrice: number | null
+    46→  maxEmployees: number | null
+    47→  limit: string
+    48→  featured?: boolean
+    49→}
+    50→
+    51→// Fallback catalog — kept numerically identical to the Plan table (see
+    52→// ensureDefaultPlans in src/lib/entitlements.ts). The pricing section hydrates
+    53→// from GET /api/plans so the brochure and the billing engine can never drift.
+    54→const FALLBACK_PLANS: PlanCard[] = [
+    55→  { key: 'starter', name: 'Starter', description: 'A focused foundation for small teams.', monthlyPrice: 30000, maxEmployees: 10, limit: 'Up to 10 employees' },
+    56→  { key: 'business', name: 'Business', description: 'More visibility for growing organizations.', monthlyPrice: 75000, maxEmployees: 30, limit: 'Up to 30 employees', featured: true },
+    57→  { key: 'professional', name: 'Professional', description: 'Reporting depth for established teams.', monthlyPrice: 150000, maxEmployees: 75, limit: 'Up to 75 employees' },
+    58→  { key: 'enterprise', name: 'Enterprise', description: 'A plan shaped around your operating model.', monthlyPrice: null, maxEmployees: null, limit: '75+ employees' },
+    59→]
+    60→
+    61→const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'annual']
+    62→
+    63→const ugx = (amount: number) => `UGX ${Math.round(amount).toLocaleString('en-US')}`
+    64→
+    65→const faqs = [
+    66→  ['Do employees need training?', 'The daily activity flow is intentionally simple. Most teams can introduce it with a short walkthrough and a clear reporting expectation.'],
+    67→  ['Can we export our monthly reports?', 'Yes. Monthly reporting is designed for structured, Excel-ready exports that include summaries, statistics, activities, and notes.'],
+    68→  ['How is access controlled?', 'Access is organization-scoped and role-aware. Important actions can be recorded in an audit trail for review.'],
+    69→  ['Can we start before choosing a paid plan?', 'Yes. Start with a 14-day trial without payment details, then choose the plan and billing interval that fits your organization.'],
+    70→]
+    71→
+    72→export default function MarketingPage() {
+    73→  const [menuOpen, setMenuOpen] = useState(false)
+    74→  const [activeDemo, setActiveDemo] = useState(0)
+    75→  const [interval, setInterval] = useState<BillingInterval>('annual')
+    76→  const [plans, setPlans] = useState<PlanCard[]>(FALLBACK_PLANS)
+    77→  const [activeSection, setActiveSection] = useState('features')
+    78→  const [pointer, setPointer] = useState({ x: 50, y: 20 })
+    79→
+    80→  // Hydrate the catalog from the billing engine's public endpoint. If it is
+    81→  // unreachable, the fallback constants above still render truthful numbers.
+    82→  useEffect(() => {
+    83→    let cancelled = false
+    84→    fetch('/api/plans')
+    85→      .then((response) => (response.ok ? response.json() : null))
+    86→      .then((body) => {
+    87→        if (cancelled || !body?.plans) return
+    88→        const hydrated: PlanCard[] = body.plans.map((plan: { key: string; name: string; description?: string; monthlyPrice: number; maxEmployees: number | null; customPricing?: boolean }) => ({
+    89→          key: plan.key,
+    90→          name: plan.name,
+    91→          description: plan.description || FALLBACK_PLANS.find((fixture) => fixture.key === plan.key)?.description || '',
+    92→          monthlyPrice: plan.customPricing ? null : plan.monthlyPrice,
+    93→          maxEmployees: plan.maxEmployees,
+    94→          limit: plan.maxEmployees === null ? '75+ employees' : `Up to ${plan.maxEmployees} employees`,
+    95→          featured: FALLBACK_PLANS.find((fixture) => fixture.key === plan.key)?.featured,
+    96→        }))
+    97→        // Keep the brochure's display order (Starter → Enterprise) regardless
+    98→        // of how the catalog API sorts by price.
+    99→        hydrated.sort((a, b) => {
+   100→          const order = (plan: PlanCard) => FALLBACK_PLANS.findIndex((fixture) => fixture.key === plan.key)
+   101→          return order(a) - order(b)
+   102→        })
+   103→        if (hydrated.length > 0) setPlans(hydrated)
+   104→      })
+   105→      .catch(() => undefined)
+   106→    return () => { cancelled = true }
+   107→  }, [])
+   108→
+   109→  useEffect(() => {
+   110→    const sections = ['features', 'how-it-works', 'security', 'pricing']
+   111→    const observer = new IntersectionObserver((entries) => {
+   112→      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+   113→      if (visible) setActiveSection(visible.target.id)
+   114→    }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.1, 0.4, 0.8] })
+   115→    sections.forEach((id) => { const element = document.getElementById(id); if (element) observer.observe(element) })
+   116→    return () => observer.disconnect()
+   117→  }, [])
+   118→
+   119→  useEffect(() => {
+   120→    const revealItems = Array.from(document.querySelectorAll<HTMLElement>('.marketing-shell .reveal'))
+   121→    const revealObserver = new IntersectionObserver((entries) => {
+   122→      entries.forEach((entry) => {
+   123→        if (entry.isIntersecting) {
+   124→          entry.target.classList.add('is-visible')
+   125→          revealObserver.unobserve(entry.target)
+   126→        }
+   127→      })
+   128→    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' })
+   129→    revealItems.forEach((item) => revealObserver.observe(item))
+   130→    return () => revealObserver.disconnect()
+   131→  }, [])
+   132→
+   133→  return (
+   134→    <main className="marketing-shell min-h-screen overflow-hidden bg-[#f4f6f8] text-[#17211b]" style={{ '--pointer-x': `${pointer.x}%`, '--pointer-y': `${pointer.y}%` } as CSSProperties} onPointerMove={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setPointer({ x: ((event.clientX - rect.left) / rect.width) * 100, y: ((event.clientY - rect.top) / rect.height) * 100 }) }}>
+   135→      <header className="reveal reveal-down sticky top-0 z-30 border-b border-[#dce4e1] bg-[#f4f6f8]/95 backdrop-blur">
+   136→        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 lg:px-8">
+   137→          <Link href="/" className="flex items-center gap-3" aria-label="Natural Intellects home">
+   138→            <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Natural%20Intellects%20LTD%20LOGO-kW8y0UnJCLLYKZinLc70NoJI9YPSup.png" alt="Natural Intellects Ltd" className="h-11 w-11 rounded-full object-cover" />
+   139→            <span className="hidden text-sm font-bold tracking-[0.1em] text-[#123c36] sm:block">NATURAL INTELLECTS</span>
+   140→          </Link>
+   141→          <nav className="hidden items-center gap-7 text-sm text-[#64716f] lg:flex" aria-label="Primary navigation">
+   142→            {[['features', 'Features'], ['how-it-works', 'How it works'], ['pricing', 'Pricing'], ['security', 'Security']].map(([id, label]) => <a key={id} href={`#${id}`} className={`border-b-2 py-2 transition-colors ${activeSection === id ? 'border-[#c47b32] text-[#123c36]' : 'border-transparent hover:text-[#123c36]'}`}>{label}</a>)}
+   143→          </nav>
+   144→          <div className="hidden items-center gap-3 lg:flex"><Link href="/login" className="rounded-full px-4 py-2.5 text-sm font-medium text-[#123c36] hover:bg-[#e9f0ee]">Log in</Link><Link href="/start-free-trial" className="rounded-full bg-[#123c36] px-5 py-2.5 text-sm font-semibold text-[#f4f6f8] shadow-sm transition-transform hover:-translate-y-0.5">Start free trial <ArrowRight className="ml-1 inline h-4 w-4" /></Link></div>
+   145→          <button type="button" className="rounded-lg p-2 lg:hidden" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X /> : <Menu />}</button>
+   146→        </div>
+   147→        {menuOpen && <nav className="flex flex-col gap-2 border-t border-[#dce4e1] px-5 py-4 text-sm lg:hidden" aria-label="Mobile navigation">{[['features', 'Features'], ['how-it-works', 'How it works'], ['pricing', 'Pricing'], ['security', 'Security']].map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-md px-2 py-3 focus:outline-none focus:ring-2 focus:ring-[#c47b32]" onClick={() => setMenuOpen(false)}>{label}</a>)}<Link href="/login" className="rounded-md px-2 py-3">Log in</Link><Link href="/start-free-trial" className="rounded-md px-2 py-3 font-semibold text-[#123c36]">Start free trial <ArrowRight className="ml-1 inline h-4 w-4" /></Link></nav>}
+   148→      </header>
+   149→
+   150→      <section className="reveal hero-reveal mx-auto grid max-w-7xl items-center gap-10 px-5 pb-20 pt-14 lg:grid-cols-[.86fr_1.14fr] lg:gap-8 lg:px-8 lg:pb-24 lg:pt-20">
+   151→        <div className="relative z-10"><p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#d2ddda] bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#64716f]"><span className="h-1.5 w-1.5 rounded-full bg-[#c47b32]" /> A clearer rhythm for every workday <ArrowRight className="h-3 w-3" /></p><h1 className="max-w-xl text-balance text-5xl font-semibold leading-[.98] tracking-[-0.06em] text-[#123c36] sm:text-6xl lg:text-[4.65rem]">Make work visible.<br /><span className="text-[#c47b32]">Move teams forward.</span></h1><p className="mt-6 max-w-lg text-base leading-7 text-[#64716f] sm:text-lg">NIWMS gives organizations one calm place to capture daily work, understand reporting health, and turn workforce activity into better decisions.</p><div className="mt-8 flex flex-col gap-3 sm:flex-row"><Link href="/start-free-trial" className="inline-flex items-center justify-center rounded-lg bg-[#c47b32] px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[#c47b32]/20 transition-transform hover:-translate-y-1">Start free trial <ArrowRight className="ml-2 h-4 w-4" /></Link><a href="#how-it-works" className="inline-flex items-center justify-center rounded-lg border border-[#d2ddda] bg-white/70 px-6 py-3.5 text-sm font-semibold text-[#123c36] hover:bg-white"><span className="mr-2 grid h-5 w-5 place-items-center rounded-full border border-[#c47b32] text-[9px]">▶</span>See how it works</a></div><div className="mt-7 flex items-center gap-3 text-xs text-[#738078]"><span className="flex -space-x-2"><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[#f4f6f8] bg-[#123c36] text-[9px] font-bold text-white">A</span><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[#f4f6f8] bg-[#c47b32] text-[9px] font-bold text-white">M</span><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[#f4f6f8] bg-[#738078] text-[9px] font-bold text-white">R</span></span><span>Built for teams that value useful visibility.</span></div></div>
+   152→        <div className="hero-preview relative border border-[#cbd6cb] bg-[#123c36] p-2.5 shadow-2xl shadow-[#123c36]/20 sm:p-4"><div className="overflow-hidden rounded-lg border border-[#d2ddda] bg-white shadow-xl"><div className="flex items-center justify-between border-b border-[#dce4e1] px-4 py-3"><div className="flex items-center gap-2 text-xs font-bold text-[#123c36]"><span className="grid h-6 w-6 place-items-center rounded-md bg-[#123c36] text-[10px] text-white">N</span> NIWMS</div><div className="flex items-center gap-3 text-[10px] text-[#829086]"><span>Search reports</span><BellRing className="h-3.5 w-3.5" /></div></div><div className="grid min-h-[310px] grid-cols-[92px_1fr] sm:min-h-[360px] sm:grid-cols-[132px_1fr]"><aside className="border-r border-[#dce4e1] bg-[#f4f6f8] p-3 text-[10px] text-[#64716f]"><p className="mb-5 rounded-md bg-[#e9f0ee] px-2 py-2 font-semibold text-[#123c36]">Overview</p><p className="mb-4 px-2">Daily reports</p><p className="mb-4 px-2">Employees</p><p className="mb-4 px-2">Monthly reports</p><p className="px-2">Settings</p></aside><div className="p-4 sm:p-6"><div className="flex items-start justify-between"><div><p className="text-[10px] uppercase tracking-[.18em] text-[#829086]">Manager overview</p><h2 className="mt-1 text-lg font-semibold text-[#123c36] sm:text-2xl">Reporting health</h2></div><span className="rounded-full bg-[#e9f0ee] px-2.5 py-1 text-[10px] font-semibold text-[#356247]">This month</span></div><div className="mt-5 grid grid-cols-3 gap-2"><div className="rounded-lg border border-[#dce4e1] p-3"><p className="text-[9px] text-[#829086]">Submitted</p><p className="mt-1 text-xl font-semibold text-[#123c36]">86%</p><p className="text-[9px] text-[#356247]">+12% this week</p></div><div className="rounded-lg border border-[#dce4e1] p-3"><p className="text-[9px] text-[#829086]">Employees</p><p className="mt-1 text-xl font-semibold text-[#123c36]">24</p><p className="text-[9px] text-[#64716f]">3 teams active</p></div><div className="rounded-lg border border-[#dce4e1] p-3"><p className="text-[9px] text-[#829086]">Missing</p><p className="mt-1 text-xl font-semibold text-[#c47b32]">4</p><p className="text-[9px] text-[#64716f]">Needs follow-up</p></div></div><div className="mt-5 grid gap-3 sm:grid-cols-[1.25fr_.75fr]"><div className="rounded-lg border border-[#dce4e1] p-3"><div className="flex justify-between text-[9px] text-[#829086]"><span>Workforce activity</span><span>Last 7 days</span></div><div className="mt-5 flex h-24 items-end gap-2">{[38,52,46,68,61,82,74,94].map((height, index) => <span key={index} className="flex-1 rounded-t-sm bg-[#123c36] opacity-90" style={{ height: `${height}%` }} />)}</div></div><div className="rounded-lg border border-[#dce4e1] p-3"><p className="text-[9px] text-[#829086]">Notifications</p><p className="mt-3 text-xs font-semibold text-[#123c36]">4 reports need attention</p><p className="mt-2 text-[9px] leading-4 text-[#64716f]">Review missing submissions before monthly close.</p></div></div></div></div></div><span className="absolute -bottom-4 -left-4 rounded-lg border border-[#d2ddda] bg-white px-3 py-2 text-[10px] font-semibold text-[#123c36] shadow-lg">Monthly reports ready <Check className="ml-1 inline h-3 w-3 text-[#c47b32]" /></span></div>
+   153→      </section>
+   154→
+   155→      <section id="features" className="scroll-mt-24 border-y border-[#dce4e1] bg-[#e9f0ee] px-5 py-20 lg:px-8"><div className="mx-auto max-w-7xl"><div className="max-w-2xl"><p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">A calmer operating rhythm</p><h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-[#123c36] sm:text-5xl">The reporting system people can actually keep up with.</h2></div><div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{features.slice(0, 4).map(({ icon: Icon, title, text }, index) => <article key={title} className={`reveal reveal-up rounded-2xl p-6 transition-transform hover:-translate-y-2 ${['bg-[#e9f0ee]', 'bg-[#edf1e7]', 'bg-[#f5eadb]', 'bg-[#e8eef1]'][index]}`}><span className="grid h-11 w-11 place-items-center rounded-xl bg-white/80 shadow-sm"><Icon className="h-5 w-5 text-[#123c36]" /></span><h3 className="mt-8 text-base font-semibold text-[#123c36]">{title}</h3><p className="mt-3 text-sm leading-6 text-[#64716f]">{text}</p></article>)}</div></div></section>
+   156→
+   157→      <section id="how-it-works" className="scroll-mt-24 mx-auto max-w-7xl px-5 py-20 lg:px-8 lg:py-28"><div className="grid gap-12 lg:grid-cols-[1.18fr_.82fr] lg:items-center"><div className="workflow-visual reveal reveal-up"><div className="rounded-2xl border border-[#dce4e1] bg-[#e9f0ee] p-5 shadow-sm"><div className="flex items-center justify-between text-xs font-semibold text-[#123c36]"><span>Workday activity</span><span className="rounded-full bg-white px-2 py-1 text-[10px] text-[#c47b32]">Live view</span></div><div className="mt-5 grid grid-cols-3 gap-2"><div className="rounded-xl bg-white p-3"><p className="text-[10px] text-[#829086]">Today</p><p className="mt-2 text-xl font-semibold text-[#123c36]">18</p><p className="mt-1 text-[10px] text-[#64716f]">reports filed</p></div><div className="rounded-xl bg-[#123c36] p-3 text-white"><p className="text-[10px] text-[#c4d0c5]">Health</p><p className="mt-2 text-xl font-semibold">86%</p><p className="mt-1 text-[10px] text-[#c4d0c5]">on track</p></div><div className="rounded-xl bg-white p-3"><p className="text-[10px] text-[#829086]">Teams</p><p className="mt-2 text-xl font-semibold text-[#123c36]">03</p><p className="mt-1 text-[10px] text-[#64716f]">active today</p></div></div><div className="mt-3 rounded-xl bg-white p-4"><div className="flex h-28 items-end gap-2">{[30,48,42,68,55,78,65,92,76].map((height, index) => <span key={index} className="flex-1 rounded-t bg-[#c47b32] opacity-80" style={{ height: `${height}%` }} />)}</div><div className="mt-3 flex justify-between text-[9px] text-[#829086]"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Today</span></div></div></div></div><div><p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">One system, three useful views</p><h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-[#123c36]">The right context for every role.</h2><p className="mt-5 leading-7 text-[#64716f]">Natural Intellects connects the daily note to the management decision without adding another maze of admin.</p><div className="mt-8 flex flex-wrap gap-2" role="tablist" aria-label="Product perspectives">{demos.map((demo, index) => <button key={demo.label} type="button" role="tab" aria-selected={activeDemo === index} onClick={() => setActiveDemo(index)} className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${activeDemo === index ? 'border-[#123c36] bg-[#123c36] text-[#f4f6f8]' : 'border-[#d2ddda] text-[#64716f] hover:bg-[#e9f0ee]'}`}>{demo.label}</button>)}</div></div><div role="tabpanel" className="reveal reveal-up rounded-2xl border border-[#dce4e1] bg-[#fbfcf8] p-6 sm:p-8"><p className="text-xs font-bold uppercase tracking-[0.2em] text-[#c47b32]">{demos[activeDemo].label}</p><h3 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-[#123c36]">{demos[activeDemo].title}</h3><p className="mt-4 max-w-xl leading-7 text-[#64716f]">{demos[activeDemo].text}</p><ul className="mt-8 grid gap-3 sm:grid-cols-3">{demos[activeDemo].items.map((item) => <li key={item} className="rounded-xl bg-[#e9f0ee] p-4 text-sm font-semibold text-[#304237]"><Check className="mb-4 h-4 w-4 text-[#c47b32]" />{item}</li>)}</ul></div></div><div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{['Create your organization', 'Add employees and teams', 'Capture daily activity', 'Monitor reporting health', 'Generate monthly insight', 'Review, share, and export'].map((step, index) => <div key={step} className="flex items-center gap-4 rounded-xl border border-[#dce4e1] p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#123c36] text-sm font-semibold text-[#f4f6f8]">{index + 1}</span><span className="text-sm font-semibold text-[#304237]">{step}</span></div>)}</div></section>
+   158→
+   159→      <section id="security" className="scroll-mt-24 bg-[#123c36] px-5 py-20 text-[#f4f6f8] lg:px-8 lg:py-24"><div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1fr_1fr] lg:items-center"><div><p className="text-xs font-bold uppercase tracking-[0.22em] text-[#e9b44c]">Built with care</p><h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">Your workforce data deserves a considered home.</h2><p className="mt-5 max-w-xl leading-7 text-[#c4d0c5]">Tenant-aware access, role-based permissions, secure authentication, and auditable activity are foundational—not add-ons.</p></div><div className="grid gap-3 sm:grid-cols-2">{[['Tenant isolation', 'Customer data is scoped server-side to its organization.'], ['Role-based access', 'Permissions follow responsibility, not guesswork.'], ['Audit logging', 'Important actions leave a clear, reviewable trail.'], ['Responsible exports', 'Reports respect ownership and organization boundaries.']].map(([title, text]) => <div key={title} className="rounded-xl border border-[#3d5c49] p-5"><ShieldCheck className="h-5 w-5 text-[#e9b44c]" /><h3 className="mt-5 font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-[#b6c5b8]">{text}</p></div>)}</div></div></section>
+   160→
+   161→      <section id="pricing" className="scroll-mt-24 mx-auto max-w-7xl px-5 py-20 lg:px-8 lg:py-28">
+   162→        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+   163→          <div><p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">Simple starting points</p><h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-[#123c36]">Choose the shape that fits your team.</h2><p className="mt-4 max-w-xl text-sm leading-6 text-[#64716f]">Every figure below is computed by the same billing engine that would invoice you — the amount, the VAT, the covered dates, and the renewal date are definitive, not estimates.</p></div>
+   164→          <div>
+   165→            <div className="flex items-center gap-2 rounded-full border border-[#dce4e1] bg-[#e9f0ee] p-1 text-sm" role="group" aria-label="Billing interval">
+   166→              {INTERVALS.map((key) => {
+   167→                const reference = plans.find((plan) => plan.featured && plan.monthlyPrice) ?? plans.find((plan) => plan.monthlyPrice)
+   168→                const savePct = reference?.monthlyPrice
+   169→                  ? Math.round((1 - computeQuote({ monthlyPrice: reference.monthlyPrice, interval: key }).effectiveMonthlyPrice / reference.monthlyPrice) * 100)
+   170→                  : 0
+   171→                return (
+   172→                  <button key={key} type="button" aria-pressed={interval === key} onClick={() => setInterval(key)} className={`rounded-full px-4 py-2 font-semibold transition-colors ${interval === key ? 'bg-[#123c36] text-[#f4f6f8]' : 'text-[#64716f] hover:text-[#123c36]'}`}>
+   173→                    {key === 'monthly' ? 'Monthly' : key === 'quarterly' ? 'Quarterly' : 'Annual'}
+   174→                    {savePct > 0 && <span className="ml-1.5 text-[#c47b32]">−{savePct}%</span>}
+   175→                  </button>
+   176→                )
+   177→              })}
+   178→            </div>
+   179→            <p className="mt-2 text-right text-[11px] text-[#829086]">Prices exclude VAT · 18% added at billing</p>
+   180→          </div>
+   181→        </div>
+   182→        <div className="mt-12 grid gap-4 lg:grid-cols-4">
+   183→          {plans.map((plan) => {
+   184→            const custom = plan.monthlyPrice === null
+   185→            const quote = custom ? null : computeQuote({ monthlyPrice: plan.monthlyPrice as number, interval })
+   186→            const savingsPct = quote && quote.monthlyEquivalentTotal > 0 ? Math.round((quote.savings / quote.monthlyEquivalentTotal) * 100) : 0
+   187→            return (
+   188→              <article key={plan.key} className={`reveal reveal-up flex flex-col rounded-2xl border p-6 ${plan.featured ? 'border-[#c47b32] bg-[#fbf0dc]' : 'border-[#dce4e1] bg-[#f4f6f8]'}`}>
+   189→                <div className="flex items-center justify-between"><h3 className="text-lg font-semibold text-[#123c36]">{plan.name}</h3>{plan.featured && <span className="rounded-full bg-[#c47b32] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">Popular</span>}</div>
+   190→                {custom ? (
+   191→                  <p className="mt-6 text-2xl font-semibold text-[#123c36]">Custom<span className="text-sm font-normal text-[#829086]"> pricing</span></p>
+   192→                ) : (
+   193→                  <>
+   194→                    <p className="mt-6 text-2xl font-semibold text-[#123c36]">{ugx(quote!.effectiveMonthlyPrice)}<span className="text-sm font-normal text-[#829086]"> / month</span></p>
+   195→                    <p className="mt-1.5 text-xs leading-5 text-[#64716f]">
+   196→                      Billed <span className="font-semibold text-[#304237]">{ugx(quote!.total)}</span> every {quote!.monthsCovered === 1 ? 'month' : `${quote!.monthsCovered} months`} · incl. VAT {ugx(quote!.vatAmount)}
+   197→                    </p>
+   198→                    {quote!.savings > 0 && (
+   199→                      <p className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-[#e7f0e4] px-2.5 py-1 text-[11px] font-semibold text-[#356247]" aria-label={`Save ${ugx(quote!.savings)} per year compared to monthly billing`}>
+   200→                        <Check className="h-3 w-3" /> Save {ugx(quote!.savings)} ({savingsPct}%)
+   201→                      </p>
+   202→                    )}
+   203→                  </>
+   204→                )}
+   205→                <p className="mt-3 text-sm text-[#64716f]">{plan.limit}</p>
+   206→                <p className="mt-5 min-h-12 text-sm leading-6 text-[#64716f]">{plan.description}</p>
+   207→                <Link href={custom ? '/start-free-trial' : `/start-free-trial?plan=${plan.key}&interval=${interval}`} className="mt-6 inline-flex items-center text-sm font-semibold text-[#123c36]">Get started <ArrowRight className="ml-2 h-4 w-4" /></Link>
+   208→              </article>
+   209→            )
+   210→          })}
+   211→        </div>
+   212→        <PricingCalculator interval={interval} plans={plans} />
+   213→      </section>
+   214→
+   215→      <section className="reveal reveal-up mx-auto max-w-4xl px-5 pb-20 lg:px-8"><p className="text-xs font-bold uppercase tracking-[0.22em] text-[#c47b32]">Questions, answered</p><h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] text-[#123c36]">A clearer start for your team.</h2><div className="mt-8 divide-y divide-[#dce4e1] border-y border-[#dce4e1]">{faqs.map(([question, answer]) => <details key={question} className="group py-5"><summary className="flex cursor-pointer list-none items-center justify-between gap-6 text-base font-semibold text-[#304237] [&::-webkit-details-marker]:hidden">{question}<ChevronDown className="h-5 w-5 shrink-0 text-[#c47b32] transition-transform group-open:rotate-180" /></summary><p className="max-w-2xl pt-3 leading-7 text-[#64716f]">{answer}</p></details>)}</div></section>
+   216→
+   217→      <section className="mx-5 mb-16 rounded-[2rem] bg-[#e9f0ee] px-6 py-14 text-center lg:mx-auto lg:max-w-7xl lg:px-8"><LockKeyhole className="mx-auto h-6 w-6 text-[#c47b32]" /><h2 className="mx-auto mt-5 max-w-2xl text-4xl font-semibold tracking-[-0.04em] text-[#123c36]">Give your people less admin and your leaders more signal.</h2><p className="mx-auto mt-4 max-w-xl leading-7 text-[#64716f]">Start with a 14-day trial and see how a clearer reporting rhythm changes the way your organization operates.</p><Link href="/start-free-trial" className="mt-8 inline-flex rounded-full bg-[#123c36] px-6 py-3.5 text-sm font-semibold text-[#f4f6f8]">Start free trial <ArrowRight className="ml-2 h-4 w-4" /></Link></section>
+   218→
+   219→      <footer className="border-t border-[#dce4e1] px-5 py-8 lg:px-8"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 text-sm text-[#738078] sm:flex-row"><p>© {new Date().getFullYear()} Natural Intellects Ltd.</p><div className="flex flex-wrap gap-5"><a href="#security" className="hover:text-[#123c36]">Security</a><a href="#pricing" className="hover:text-[#123c36]">Pricing</a><a href="mailto:hello@naturalintellects.com" className="hover:text-[#123c36]">Contact</a><span className="flex items-center gap-1"><Headphones className="h-3.5 w-3.5" /> Support-ready</span></div></div></footer>
+   220→    </main>
+   221→  )
+   222→}
+   223→
+   224→interface QuoteResponse {
+   225→  plan: { key: string; name: string; monthlyPrice: number; maxEmployees: number | null; customPricing: boolean }
+   226→  interval: BillingInterval
+   227→  seats: number | null
+   228→  fits: boolean
+   229→  quote: Quote
+   230→}
+   231→
+   232→// Interactive quote calculator. The numbers it displays come from the server's
+   233→// /api/billing/quote endpoint — the exact totals, VAT, covered period, and
+   234→// renewal date a subscriber would actually be charged on that plan + interval.
+   235→function PricingCalculator({ interval, plans }: { interval: BillingInterval; plans: PlanCard[] }) {
+   236→  const [seats, setSeats] = useState(24)
+   237→  const [planKey, setPlanKey] = useState('business')
+   238→  const [result, setResult] = useState<QuoteResponse | null>(null)
+   239→  const [refreshing, setRefreshing] = useState(false)
+   240→
+   241→  const pricedPlans = plans.filter((plan) => plan.monthlyPrice !== null)
+   242→  // Derived (not synced) selection: if the currently chosen plan cannot hold
+   243→  // the requested seats, the calculator automatically falls back to the
+   244→  // cheapest plan that can — no cascading setState effects required.
+   245→  const selectedPlan =
+   246→    pricedPlans.find((plan) => plan.key === planKey && plan.maxEmployees !== null && seats <= plan.maxEmployees) ??
+   247→    pricedPlans.find((plan) => plan.maxEmployees !== null && seats <= plan.maxEmployees) ??
+   248→    pricedPlans[pricedPlans.length - 1] ??
+   249→    pricedPlans[0]
+   250→
+   251→  useEffect(() => {
+   252→    if (!selectedPlan || selectedPlan.monthlyPrice === null) return
+   253→    const controller = new AbortController()
+   254→    const timer = setTimeout(() => {
+   255→      setRefreshing(true)
+   256→      fetch(`/api/billing/quote?plan=${selectedPlan.key}&interval=${interval}&seats=${seats}`, { signal: controller.signal })
+   257→        .then((response) => (response.ok ? response.json() : null))
+   258→        .then((body) => { if (body?.quote) setResult(body) })
+   259→        .catch(() => undefined)
+   260→        .finally(() => setRefreshing(false))
+   261→    }, 200)
+   262→    return () => { controller.abort(); clearTimeout(timer) }
+   263→  }, [interval, seats, selectedPlan])
+   264→
+   265→  const quote = result?.quote ?? null
+   266→  const trialHref = `/start-free-trial?plan=${selectedPlan?.key ?? 'business'}&interval=${interval}&seats=${seats}`
+   267→
+   268→  return (
+   269→    <div className="reveal reveal-up mt-6 overflow-hidden rounded-2xl border border-[#cbd6cb] bg-white shadow-sm" data-testid="pricing-calculator">
+   270→      <div className="grid gap-0 lg:grid-cols-[1fr_1.1fr]">
+   271→        <div className="border-b border-[#dce4e1] p-6 sm:p-8 lg:border-b-0 lg:border-r">
+   272→          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#c47b32]"><UsersRound className="h-4 w-4" /> Size your team</p>
+   273→          <h3 className="mt-3 text-2xl font-semibold text-[#123c36]">See your real number before you commit.</h3>
+   274→          <p className="mt-2 text-sm leading-6 text-[#64716f]">Slide to your team size. The calculator picks the plan that fits and quotes the exact amount, dates, and renewal.</p>
+   275→          <div className="mt-7 flex items-end justify-between"><label htmlFor="seats" className="text-sm font-semibold text-[#304237]">Employees</label><span className="rounded-lg bg-[#e9f0ee] px-3 py-1 text-sm font-bold text-[#123c36]" aria-live="polite">{seats}</span></div>
+   276→          <input id="seats" type="range" min={1} max={100} step={1} value={seats} onChange={(event) => setSeats(Number(event.target.value))} className="mt-3 h-2 w-full cursor-pointer accent-[#c47b32]" aria-valuemin={1} aria-valuemax={100} aria-valuenow={seats} />
+   277→          <div className="mt-1 flex justify-between text-[11px] text-[#829086]"><span>1</span><span>25</span><span>50</span><span>75</span><span>100+</span></div>
+   278→          <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Plan">
+   279→            {pricedPlans.map((plan) => (
+   280→              <button key={plan.key} type="button" aria-pressed={selectedPlan?.key === plan.key} onClick={() => setPlanKey(plan.key)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors ${selectedPlan?.key === plan.key ? 'border-[#123c36] bg-[#123c36] text-[#f4f6f8]' : 'border-[#d2ddda] text-[#64716f] hover:bg-[#e9f0ee]'}`}>
+   281→                {plan.name}
+   282→                {plan.maxEmployees !== null && <span className="ml-1 opacity-70">≤{plan.maxEmployees}</span>}
+   283→              </button>
+   284→            ))}
+   285→          </div>
+   286→          {seats > 75 && <p className="mt-3 rounded-lg bg-[#fbf0dc] px-3 py-2 text-xs font-medium text-[#8a5a13]" role="note">Above 75 employees our team tailors an Enterprise plan — the quote shows the Professional rate as a reference.</p>}
+   287→        </div>
+   288→        <div className="bg-[#f7f9f6] p-6 sm:p-8" aria-live="polite">
+   289→          <p className="flex items-center justify-between gap-2 text-xs font-bold uppercase tracking-[0.2em] text-[#c47b32]"><span className="flex items-center gap-2"><Receipt className="h-4 w-4" /> Your quote</span><span className={`flex items-center gap-1.5 text-[10px] font-semibold normal-case tracking-normal text-[#829086] ${refreshing ? 'opacity-100' : 'opacity-70'}`}>{refreshing && <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#c47b32]" aria-hidden="true" />}{refreshing ? 'updating…' : 'server-verified'}</span></p>
+   290→          {quote ? (
+   291→            <>
+   292→              <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2">
+   293→                <p className="text-sm font-semibold text-[#304237]">{result?.plan.name} · {quote.intervalLabel} billing · {seats} seat{seats === 1 ? '' : 's'}</p>
+   294→                <p className="text-3xl font-semibold tracking-[-0.03em] text-[#123c36]">{ugx(quote.total)}</p>
+   295→              </div>
+   296→              <p className="mt-1 text-xs text-[#829086]">Due today, VAT inclusive</p>
+   297→              <dl className="mt-5 space-y-2.5 text-sm">
+   298→                <div className="flex justify-between gap-4"><dt className="text-[#64716f]">Effective monthly rate</dt><dd className="font-semibold text-[#304237]">{ugx(quote.effectiveMonthlyPrice)}</dd></div>
+   299→                <div className="flex justify-between gap-4"><dt className="text-[#64716f]">Subtotal ({quote.monthsCovered} {quote.monthsCovered === 1 ? 'month' : 'months'})</dt><dd className="text-[#304237]">{ugx(quote.subtotal)}</dd></div>
+   300→                <div className="flex justify-between gap-4"><dt className="text-[#64716f]">VAT ({Math.round(quote.vatRate * 100)}%)</dt><dd className="text-[#304237]">{ugx(quote.vatAmount)}</dd></div>
+   301→                <div className="flex justify-between gap-4 border-t border-[#dce4e1] pt-2.5"><dt className="flex items-center gap-1.5 text-[#64716f]"><CalendarRange className="h-4 w-4 text-[#c47b32]" /> Period covered</dt><dd className="text-right font-semibold text-[#304237]">{quote.periodStartLabel} → {quote.periodEndLabel}</dd></div>
+   302→                <div className="flex justify-between gap-4"><dt className="text-[#64716f]">Renews on</dt><dd className="font-semibold text-[#304237]">{quote.periodEndLabel}</dd></div>
+   303→                {quote.savings > 0 && (
+   304→                  <div className="flex justify-between gap-4 rounded-lg bg-[#e7f0e4] px-3 py-2"><dt className="font-semibold text-[#356247]">You save vs monthly billing</dt><dd className="font-bold text-[#356247]">{ugx(quote.savings)} ({quote.savingsPercent}%)</dd></div>
+   305→                )}
+   306→              </dl>
+   307→              <Link href={trialHref} className="mt-6 flex items-center justify-center rounded-xl bg-[#123c36] px-5 py-3.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5" aria-label={`Start free trial on ${result?.plan.name}, billed ${quote.intervalLabel.toLowerCase()}`}>Start with {result?.plan.name} · {quote.intervalLabel} <ArrowRight className="ml-2 h-4 w-4" /></Link>
+   308→              <p className="mt-3 text-center text-[11px] text-[#829086]">No payment during the 14-day trial — your billing interval takes effect when you convert.</p>
+   309→            </>
+   310→          ) : (
+   311→            <div className="mt-6 space-y-3" aria-hidden="true"><div className="h-8 w-40 animate-pulse rounded-lg bg-[#e2e8e0]" /><div className="h-4 w-full animate-pulse rounded bg-[#e2e8e0]" /><div className="h-4 w-3/4 animate-pulse rounded bg-[#e2e8e0]" /><div className="h-4 w-2/3 animate-pulse rounded bg-[#e2e8e0]" /><div className="h-12 w-full animate-pulse rounded-xl bg-[#e2e8e0]" /></div>
+   312→          )}
+   313→        </div>
+   314→      </div>
+   315→    </div>
+   316→  )
+   317→}
+   318→
