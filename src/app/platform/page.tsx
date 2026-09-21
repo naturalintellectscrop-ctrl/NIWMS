@@ -1,10 +1,51 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Building2, Users, FileText, CreditCard, ShieldAlert, ArrowLeft, RefreshCw, Search, CalendarClock, Inbox, UserPlus, KeyRound, Copy, Check, X, Loader2, Sparkles, Hourglass, Mail, ChevronDown, AlertCircle, Eye, AlignLeft } from 'lucide-react'
+import { Building2, Users, FileText, CreditCard, ShieldAlert, ArrowLeft, RefreshCw, Search, CalendarClock, Inbox, UserPlus, KeyRound, Copy, Check, X, Loader2, Sparkles, Hourglass, Mail, ChevronDown, AlertCircle, Eye, AlignLeft, Banknote, MoreHorizontal, PauseCircle, Power, ShieldX, Timer, Trash2, Ban } from 'lucide-react'
 
-type Overview = { metrics: Record<string, number>; organizations: { id: string; name: string; slug: string; status: string; createdAt: string; trialEndsAt: string | null; subscription: { status: string; plan: { name: string } } | null; _count: { users: number } }[] }
+type OrganizationRow = {
+  id: string
+  name: string
+  slug: string
+  status: string
+  organizationType: string
+  createdAt: string
+  trialEndsAt: string
+  graceEndsAt: string | null
+  bannedAt: string | null
+  bannedReason: string | null
+  memberCount: number
+  subscription: {
+    status: string
+    billingInterval: string
+    currentPeriodStart: string | null
+    currentPeriodEnd: string | null
+    planName: string | null
+    monthlyPriceCents: number
+  } | null
+}
+
+type Overview = {
+  metrics: {
+    organizations: number
+    activeOrganizations: number
+    paidClients: number
+    trials: number
+    paused: number
+    suspended: number
+    banned: number
+    estimatedMrrCents: number
+    customPricedClients: number
+    upcomingRenewals: number
+    employees: number
+    reports: number
+    pendingTrialRequests: number
+    billingEvents: number
+  }
+  gracePeriodDays: number
+  organizations: OrganizationRow[]
+}
 
 type TrialRequest = {
   id: string
@@ -42,6 +83,13 @@ type EmailRow = {
   sentAt: string | null
 }
 
+type ConfirmState =
+  | { kind: 'ban'; organization: OrganizationRow }
+  | { kind: 'purge'; organization: OrganizationRow }
+  | null
+
+type OwnerAction = 'ban' | 'unban' | 'suspend' | 'reactivate' | 'extend' | 'purge'
+
 // NI product palette — dark control-plane variant (green-tinted, gold accents)
 const T = {
   page: 'bg-[#0f1a17] text-[#f4f1e8]',
@@ -53,22 +101,30 @@ const T = {
   positive: 'text-[#7fc9a6]',
 }
 
+function formatUgx(cents: number): string {
+  return `UGX ${Math.round(cents / 100).toLocaleString('en-US')}`
+}
+
 function LifecycleBadge({ status }: { status: string }) {
   const normalized = (status || '').toLowerCase()
   const styles: Record<string, string> = {
     trial: 'bg-[#e9b44c]/10 text-[#e9b44c] border-[#e9b44c]/30',
-    active: 'bg-[#7fc9a6]/10 text-[#7fc9a6] border-[#e9b44c]/30',
+    trialing: 'bg-[#e9b44c]/10 text-[#e9b44c] border-[#e9b44c]/30',
+    active: 'bg-[#7fc9a6]/10 text-[#7fc9a6] border-[#7fc9a6]/30',
+    grace: 'bg-[#e2705f]/10 text-[#f0a08f] border-[#e2705f]/30',
+    grace_period: 'bg-[#e2705f]/10 text-[#f0a08f] border-[#e2705f]/30',
     past_due: 'bg-[#e9b44c]/10 text-[#e9b44c] border-[#e9b44c]/30',
-    grace_period: 'bg-[#e9b44c]/10 text-[#e9b44c] border-[#e9b44c]/30',
+    expired: 'bg-[#e2705f]/10 text-[#e2705f] border-[#e2705f]/30',
     suspended: 'bg-[#e2705f]/10 text-[#e2705f] border-[#e2705f]/30',
+    banned: 'bg-[#e2705f]/20 text-[#e2705f] border-[#e2705f]/60',
+    archived: 'bg-white/5 text-[#7f948a] border-white/15',
   }
   const cls = styles[normalized] ?? 'bg-white/5 text-[#a8b8b0] border-white/15'
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${cls}`}>{normalized.replace(/_/g, ' ') || 'unknown'}</span>
 }
 
-// Trial countdown chip: urgency-colored time remaining with the exact end date
-// underneath. Falls back to a plain date for non-trial organizations.
-function TrialCountdown({ endsAt, active }: { endsAt: string; active: boolean }) {
+// Deadline chip: urgency-colored time remaining with the exact date underneath.
+function DeadlineChip({ endsAt, label, active }: { endsAt: string; label: string; active: boolean }) {
   if (!active) {
     return (
       <span className={`inline-flex items-center gap-1.5 ${T.muted}`}>
@@ -89,14 +145,14 @@ function TrialCountdown({ endsAt, active }: { endsAt: string; active: boolean })
       : winding
         ? 'border-[#e9b44c]/40 bg-[#e9b44c]/10 text-[#e9b44c]'
         : 'border-white/15 bg-white/5 text-[#d8e2dc]'
-  const label = expired ? 'Expired' : today ? 'Ends today' : `${daysLeft}d left`
+  const value = expired ? 'Overdue' : today ? 'Ends today' : `${daysLeft}d left`
   return (
     <span className="inline-flex flex-col items-start gap-1">
-      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${chip}`} title={`Trial ends ${new Date(endsAt).toLocaleDateString()}`}>
+      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${chip}`} title={`${label} ${new Date(endsAt).toLocaleDateString()}`}>
         <Hourglass className="h-3 w-3" />
-        {label}
+        {value}
       </span>
-      <span className={`text-[11px] ${T.faint}`}>{new Date(endsAt).toLocaleDateString()}</span>
+      <span className={`text-[11px] ${T.faint}`}>{label}{new Date(endsAt).toLocaleDateString()}</span>
     </span>
   )
 }
@@ -142,11 +198,52 @@ function timeAgoLabel(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
+// The intelligent time-frame cell: shows whichever clock actually governs the client.
+function TimeFrameCell({ organization }: { organization: OrganizationRow }) {
+  const status = organization.status
+  if (status === 'banned') {
+    return (
+      <span className="inline-flex flex-col items-start gap-1">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e2705f]/60 bg-[#e2705f]/15 px-2.5 py-0.5 text-xs font-semibold text-[#e2705f]">
+          <Ban className="h-3 w-3" /> Banned
+        </span>
+        {organization.bannedAt && <span className={`text-[11px] ${T.faint}`}>{new Date(organization.bannedAt).toLocaleDateString()}{organization.bannedReason ? ` · ${organization.bannedReason.slice(0, 60)}` : ''}</span>}
+      </span>
+    )
+  }
+  if (status === 'suspended') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e2705f]/30 bg-[#e2705f]/5 px-2.5 py-0.5 text-xs text-[#f0a08f]">
+        <PauseCircle className="h-3 w-3" /> Turned off
+      </span>
+    )
+  }
+  if (status === 'grace') {
+    return (
+      <span className="inline-flex flex-col items-start gap-1">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e2705f]/40 bg-[#e2705f]/10 px-2.5 py-0.5 text-xs font-medium text-[#f0a08f]">
+          <PauseCircle className="h-3 w-3" /> Paused · data held
+        </span>
+        {organization.graceEndsAt && <DeadlineChip endsAt={organization.graceEndsAt} label="Deleted after " active />}
+      </span>
+    )
+  }
+  if (status === 'trial' || organization.subscription?.status === 'trialing') {
+    return <DeadlineChip endsAt={organization.trialEndsAt} label="Trial ends " active />
+  }
+  const periodEnd = organization.subscription?.currentPeriodEnd
+  if (status === 'active' && periodEnd) {
+    return <DeadlineChip endsAt={periodEnd} label="Paid until " active />
+  }
+  return <span className={T.faint}>—</span>
+}
+
 export default function PlatformPage() {
   const [data, setData] = useState<Overview | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [trialRequests, setTrialRequests] = useState<TrialRequest[]>([])
   const [pendingRequests, setPendingRequests] = useState(0)
   const [actingId, setActingId] = useState<string | null>(null)
@@ -158,6 +255,14 @@ export default function PlatformPage() {
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null)
   // Per-email body rendering: plain text (default) or the branded HTML preview.
   const [emailPreviewMode, setEmailPreviewMode] = useState<Record<string, boolean>>({})
+  // Client management state
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [customDays, setCustomDays] = useState('')
+  const [confirmState, setConfirmState] = useState<ConfirmState>(null)
+  const [confirmReason, setConfirmReason] = useState('')
+  const [confirmSlug, setConfirmSlug] = useState('')
+  const [flash, setFlash] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const flashTimer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -192,6 +297,18 @@ export default function PlatformPage() {
     return () => window.clearTimeout(timer)
   }, [load])
 
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current) window.clearTimeout(flashTimer.current)
+    }
+  }, [])
+
+  function showFlash(tone: 'ok' | 'err', text: string) {
+    setFlash({ tone, text })
+    if (flashTimer.current) window.clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setFlash(null), 6000)
+  }
+
   async function act(request: TrialRequest, action: 'approve' | 'dismiss') {
     setActingId(request.id)
     try {
@@ -223,14 +340,46 @@ export default function PlatformPage() {
     setPasswordCopied(true)
   }
 
+  // Owner control action against a client organization.
+  async function runOwnerAction(organization: OrganizationRow, action: OwnerAction, options: { days?: number; reason?: string } = {}) {
+    setActingId(organization.id)
+    setOpenMenuId(null)
+    try {
+      const response = await fetch(`/api/platform/organizations/${organization.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action, ...options }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        showFlash('err', body.error ?? 'Action failed.')
+        return
+      }
+      showFlash('ok', body.message ?? 'Done.')
+      setConfirmState(null)
+      setConfirmReason('')
+      setConfirmSlug('')
+      await load()
+    } finally {
+      setActingId(null)
+    }
+  }
+
   const organizations = data?.organizations ?? []
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return organizations
-    return organizations.filter((o) => o.name.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q))
-  }, [organizations, query])
+    let rows = organizations
+    if (q) rows = rows.filter((o) => o.name.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q))
+    if (statusFilter !== 'all') rows = rows.filter((o) => o.status === statusFilter)
+    return rows
+  }, [organizations, query, statusFilter])
 
-  const trialCount = organizations.filter((o) => (o.status || '').toLowerCase() === 'trial').length
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: organizations.length }
+    for (const organization of organizations) counts[organization.status] = (counts[organization.status] ?? 0) + 1
+    return counts
+  }, [organizations])
 
   if (loading) {
     return (
@@ -259,11 +408,28 @@ export default function PlatformPage() {
     )
   }
 
+  const metrics = data?.metrics
+  const graceDays = data?.gracePeriodDays ?? 30
   const cards = [
-    { label: 'Organizations', value: data?.metrics.organizations, icon: Building2, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
-    { label: 'Active employees', value: data?.metrics.employees, icon: Users, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
-    { label: 'Organizations on trial', value: trialCount, icon: CreditCard, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
-    { label: 'Reports generated', value: data?.metrics.reports, icon: FileText, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
+    { label: 'Organizations', value: metrics?.organizations, icon: Building2, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
+    { label: 'Active employees', value: metrics?.employees, icon: Users, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
+    { label: 'Organizations on trial', value: metrics?.trials, icon: CreditCard, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
+    { label: 'Reports generated', value: metrics?.reports, icon: FileText, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
+  ]
+  const incomeCards = [
+    { label: 'Estimated MRR', value: metrics ? formatUgx(metrics.estimatedMrrCents) : '—', hint: `${metrics?.paidClients ?? 0} paying client${(metrics?.paidClients ?? 0) === 1 ? '' : 's'} · interval-normalized${(metrics?.customPricedClients ?? 0) > 0 ? ` · ${(metrics?.customPricedClients ?? 0)} on custom pricing excluded` : ''}`, icon: Banknote, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
+    { label: 'Paused clients', value: metrics?.paused, hint: `Data held ${graceDays} days, then purged`, icon: PauseCircle, accent: 'text-[#f0a08f] bg-[#e2705f]/10' },
+    { label: 'Banned / off', value: (metrics?.banned ?? 0) + (metrics?.suspended ?? 0), hint: 'Sign-in blocked · data retained', icon: ShieldX, accent: 'text-[#e2705f] bg-[#e2705f]/10' },
+    { label: 'Renewals ≤ 30 days', value: metrics?.upcomingRenewals, hint: `${metrics?.billingEvents ?? 0} billing events recorded`, icon: Timer, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
+  ]
+
+  const filterChips = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'trial', label: 'Trial' },
+    { key: 'grace', label: 'Paused' },
+    { key: 'suspended', label: 'Off' },
+    { key: 'banned', label: 'Banned' },
   ]
 
   return (
@@ -290,6 +456,23 @@ export default function PlatformPage() {
               </div>
               <p className="mt-6 text-3xl font-semibold tabular-nums">{value ?? 0}</p>
               <p className={`mt-2 text-sm ${T.muted}`}>{label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Income + lifecycle controls */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {incomeCards.map(({ label, value, hint, icon: Icon, accent }) => (
+            <div key={label} className={`rounded-xl border ${T.surface} p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#3a5548] hover:shadow-lg hover:shadow-black/20`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${accent}`}>
+                  <Icon className="h-5 w-5" />
+                </div>
+                <span className={`text-[10px] font-semibold uppercase tracking-widest ${T.faint}`}>Time engine</span>
+              </div>
+              <p className="mt-6 text-2xl font-semibold tabular-nums">{value ?? 0}</p>
+              <p className={`mt-2 text-sm ${T.muted}`}>{label}</p>
+              <p className={`mt-1 text-xs ${T.faint}`}>{hint}</p>
             </div>
           ))}
         </div>
@@ -492,21 +675,21 @@ export default function PlatformPage() {
           )}
         </section>
 
-        {/* Organizations */}
+        {/* Client management */}
         <section className={`mt-8 overflow-hidden rounded-xl border ${T.surface}`}>
-          <div className={`flex flex-col gap-4 border-b ${T.border} px-5 py-4 sm:flex-row sm:items-center sm:justify-between`}>
+          <div className={`flex flex-col gap-4 border-b ${T.border} px-5 py-4 lg:flex-row lg:items-center lg:justify-between`}>
             <div>
-              <h2 className="font-semibold">Organizations</h2>
-              <p className={`mt-1 text-sm ${T.muted}`}>Control-plane visibility without unrestricted customer report access.</p>
+              <h2 className="font-semibold">Clients</h2>
+              <p className={`mt-1 text-sm ${T.muted}`}>Every workspace with its income plan and time frame. Ban, turn off, extend time, or purge — the engine pauses expired clients automatically and deletes their data after {graceDays} days without payment.</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7f948a]" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search organizations..."
-                  aria-label="Search organizations"
+                  placeholder="Search clients..."
+                  aria-label="Search clients"
                   className="h-10 w-56 rounded-lg border border-[#3a5548] bg-[#0f1a17] pl-9 pr-3 text-sm text-[#f4f1e8] placeholder:text-[#5f7269] focus:border-[#e9b44c]/60 focus:outline-none"
                 />
               </div>
@@ -514,48 +697,163 @@ export default function PlatformPage() {
             </div>
           </div>
 
+          {/* Status filter chips */}
+          <div className="flex flex-wrap gap-2 border-b border-[#21362e] px-5 py-3">
+            {filterChips.map((chip) => {
+              const count = statusCounts[chip.key] ?? 0
+              const activeFilter = statusFilter === chip.key
+              return (
+                <button
+                  key={chip.key}
+                  onClick={() => setStatusFilter(chip.key)}
+                  aria-pressed={activeFilter}
+                  className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${activeFilter ? 'border-[#e9b44c]/60 bg-[#e9b44c]/15 text-[#e9b44c]' : 'border-white/10 bg-white/5 text-[#a8b8b0] hover:border-[#3a5548] hover:text-[#d8e2dc]'}`}
+                >
+                  {chip.label}
+                  <span className="tabular-nums opacity-70">{count}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {flash && (
+            <p role="status" className={`mx-5 mt-4 flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${flash.tone === 'ok' ? 'border-[#7fc9a6]/40 bg-[#7fc9a6]/5 text-[#7fc9a6]' : 'border-[#e2705f]/40 bg-[#e2705f]/10 text-[#f0a08f]'}`}>
+              {flash.tone === 'ok' ? <Check className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+              {flash.text}
+            </p>
+          )}
+
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className={`text-xs uppercase tracking-wider ${T.faint}`}>
                 <tr className={`border-b ${T.border}`}>
-                  <th className="px-5 py-4">Organization</th>
+                  <th className="px-5 py-4">Client</th>
+                  <th className="px-5 py-4">Status</th>
                   <th className="px-5 py-4">Plan</th>
-                  <th className="px-5 py-4">Users</th>
-                  <th className="px-5 py-4">Lifecycle</th>
-                  <th className="px-5 py-4">Trial ends</th>
-                  <th className="px-5 py-4">Created</th>
+                  <th className="px-5 py-4">Members</th>
+                  <th className="px-5 py-4">Time frame</th>
+                  <th className="px-5 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((organization) => (
-                  <tr key={organization.id} className={`border-b border-[#21362e] transition-colors last:border-0 hover:bg-[#1b2e27]`}>
-                    <td className="px-5 py-4">
-                      <p className="font-medium">{organization.name}</p>
-                      <p className={`text-xs ${T.faint}`}>{organization.slug}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-[#d8e2dc]">
-                        {organization.subscription?.plan.name ?? 'Unassigned'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 tabular-nums">{organization._count.users}</td>
-                    <td className="px-5 py-4"><LifecycleBadge status={organization.subscription?.status ?? organization.status} /></td>
-                    <td className="px-5 py-4">
-                      {organization.trialEndsAt ? (
-                        <TrialCountdown
-                          endsAt={organization.trialEndsAt}
-                          active={organization.status === 'trial' || organization.subscription?.status === 'trialing'}
-                        />
-                      ) : '—'}
-                    </td>
-                    <td className={`px-5 py-4 tabular-nums ${T.muted}`}>{new Date(organization.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                ))}
+                {filtered.map((organization) => {
+                  const menuOpen = openMenuId === organization.id
+                  const isLegacy = organization.organizationType === 'LEGACY'
+                  return (
+                    <tr key={organization.id} className="border-b border-[#21362e] transition-colors last:border-0 hover:bg-[#1b2e27]">
+                      <td className="px-5 py-4">
+                        <p className="flex items-center gap-2 font-medium">
+                          {organization.name}
+                          {isLegacy && <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7f948a]">Legacy</span>}
+                        </p>
+                        <p className={`text-xs ${T.faint}`}>{organization.slug} · joined {new Date(organization.createdAt).toLocaleDateString()}</p>
+                      </td>
+                      <td className="px-5 py-4"><LifecycleBadge status={organization.status} /></td>
+                      <td className="px-5 py-4">
+                        {organization.subscription ? (
+                          <span className="inline-flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-[#d8e2dc]">{organization.subscription.planName ?? 'Unassigned'}</span>
+                              {organization.subscription.status === 'active' && organization.subscription.monthlyPriceCents > 0 && (
+                                <span className="text-[11px] tabular-nums text-[#7fc9a6]">{formatUgx(organization.subscription.monthlyPriceCents)}/mo</span>
+                              )}
+                            </span>
+                            <span className={`text-[11px] ${T.faint}`}>{organization.subscription.billingInterval} · {organization.subscription.status}</span>
+                          </span>
+                        ) : <span className={T.faint}>No plan</span>}
+                      </td>
+                      <td className="px-5 py-4 tabular-nums">{organization.memberCount}</td>
+                      <td className="px-5 py-4"><TimeFrameCell organization={organization} /></td>
+                      <td className="relative px-5 py-4 text-right">
+                        <button
+                          onClick={() => { setOpenMenuId(menuOpen ? null : organization.id); setCustomDays('') }}
+                          aria-haspopup="menu"
+                          aria-expanded={menuOpen}
+                          aria-label={`Actions for ${organization.name}`}
+                          disabled={actingId === organization.id}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#3a5548] px-3 text-xs font-semibold text-[#d8e2dc] transition hover:bg-[#1d332b] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {actingId === organization.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MoreHorizontal className="h-3.5 w-3.5" />}
+                          Manage
+                        </button>
+                        {menuOpen && (
+                          <>
+                            <button aria-hidden tabIndex={-1} onClick={() => setOpenMenuId(null)} className="fixed inset-0 z-20 cursor-default" />
+                            <div role="menu" aria-label={`Manage ${organization.name}`} className="absolute right-5 top-full z-30 mt-1 w-60 overflow-hidden rounded-xl border border-[#3a5548] bg-[#12211d] py-1.5 text-left shadow-2xl shadow-black/40">
+                              <p className={`px-3 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-widest ${T.faint}`}>Extend time</p>
+                              {[7, 30, 90].map((days) => (
+                                <button
+                                  key={days}
+                                  role="menuitem"
+                                  onClick={() => void runOwnerAction(organization, 'extend', { days })}
+                                  className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#d8e2dc] transition-colors hover:bg-[#1d332b]"
+                                >
+                                  <Timer className="h-3.5 w-3.5 text-[#7fc9a6]" /> +{days} days
+                                </button>
+                              ))}
+                              <div className="flex items-center gap-1.5 px-3 py-1.5">
+                                <input
+                                  value={customDays}
+                                  onChange={(e) => setCustomDays(e.target.value.replace(/[^0-9]/g, ''))}
+                                  placeholder="Custom days"
+                                  aria-label={`Custom extension days for ${organization.name}`}
+                                  className="h-8 w-full rounded-md border border-[#3a5548] bg-[#0f1a17] px-2 text-xs text-[#f4f1e8] placeholder:text-[#5f7269] focus:border-[#e9b44c]/60 focus:outline-none"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const days = Number(customDays)
+                                    if (Number.isInteger(days) && days >= 1 && days <= 3650) void runOwnerAction(organization, 'extend', { days })
+                                  }}
+                                  disabled={!customDays || Number(customDays) < 1}
+                                  className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-[#e9b44c] px-2.5 text-xs font-bold text-[#0f1a17] transition hover:bg-[#f0c26a] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Add
+                                </button>
+                              </div>
+                              <div className={`my-1.5 border-t ${T.border}`} />
+                              {organization.status === 'banned' ? (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'unban')} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#7fc9a6] transition-colors hover:bg-[#1d332b]">
+                                  <ShieldX className="h-3.5 w-3.5" /> Unban (restore access)
+                                </button>
+                              ) : (
+                                <button role="menuitem" onClick={() => setConfirmState({ kind: 'ban', organization })} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#f0a08f] transition-colors hover:bg-[#1d332b]">
+                                  <Ban className="h-3.5 w-3.5" /> Ban client…
+                                </button>
+                              )}
+                              {organization.status === 'suspended' ? (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'reactivate')} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#7fc9a6] transition-colors hover:bg-[#1d332b]">
+                                  <Power className="h-3.5 w-3.5" /> Turn back on (+30d window)
+                                </button>
+                              ) : (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'suspend')} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#f0a08f] transition-colors hover:bg-[#1d332b]">
+                                  <PauseCircle className="h-3.5 w-3.5" /> Turn off (suspend)
+                                </button>
+                              )}
+                              {organization.status === 'grace' && (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'reactivate')} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#7fc9a6] transition-colors hover:bg-[#1d332b]">
+                                  <Power className="h-3.5 w-3.5" /> Resume now (+30d window)
+                                </button>
+                              )}
+                              {!isLegacy && (
+                                <>
+                                  <div className={`my-1.5 border-t ${T.border}`} />
+                                  <button role="menuitem" onClick={() => { setConfirmState({ kind: 'purge', organization }); setConfirmSlug('') }} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs font-semibold text-[#e2705f] transition-colors hover:bg-[#e2705f]/10">
+                                    <Trash2 className="h-3.5 w-3.5" /> Delete all data…
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
             {filtered.length === 0 && (
               <p className={`p-8 text-sm ${T.muted}`}>
-                {organizations.length === 0 ? 'No organizations have been created yet.' : `No organizations match “${query}”.`}
+                {organizations.length === 0 ? 'No clients yet. Approve a trial request to create the first workspace.' : `No clients match the current filters.`}
               </p>
             )}
           </div>
@@ -563,6 +861,61 @@ export default function PlatformPage() {
 
         <p className={`mt-8 text-center text-xs ${T.faint}`}>© {new Date().getFullYear()} Natural Intellects Ltd · NIWMS Control Center</p>
       </div>
+
+      {/* Confirm dialogs: ban (with reason) and purge (type-to-confirm) */}
+      {confirmState && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label={confirmState.kind === 'ban' ? 'Confirm ban' : 'Confirm data deletion'}>
+          <div className={`w-full max-w-md rounded-xl border ${T.surface} bg-[#12211d] p-6 shadow-2xl shadow-black/50`}>
+            {confirmState.kind === 'ban' ? (
+              <>
+                <h3 className="flex items-center gap-2 text-lg font-semibold"><Ban className="h-5 w-5 text-[#e2705f]" /> Ban {confirmState.organization.name}?</h3>
+                <p className={`mt-2 text-sm leading-6 ${T.muted}`}>Every member loses sign-in access immediately. Their data is kept. You can unban at any time to restore access.</p>
+                <label className={`mt-4 block text-xs font-semibold uppercase tracking-widest ${T.faint}`} htmlFor="ban-reason">Reason (optional, kept in the audit log)</label>
+                <input
+                  id="ban-reason"
+                  value={confirmReason}
+                  onChange={(e) => setConfirmReason(e.target.value)}
+                  maxLength={300}
+                  placeholder="e.g. Non-payment dispute"
+                  className="mt-2 h-10 w-full rounded-lg border border-[#3a5548] bg-[#0f1a17] px-3 text-sm text-[#f4f1e8] placeholder:text-[#5f7269] focus:border-[#e9b44c]/60 focus:outline-none"
+                />
+                <div className="mt-6 flex justify-end gap-3">
+                  <button onClick={() => { setConfirmState(null); setConfirmReason('') }} className="inline-flex min-h-10 items-center rounded-lg border border-[#3a5548] px-4 text-sm font-semibold text-[#a8b8b0] transition hover:bg-[#1d332b]">Cancel</button>
+                  <button
+                    onClick={() => void runOwnerAction(confirmState.organization, 'ban', { reason: confirmReason })}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#e2705f] px-4 text-sm font-bold text-[#0f1a17] transition hover:bg-[#e98a7c]"
+                  >
+                    <Ban className="h-4 w-4" /> Ban client
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="flex items-center gap-2 text-lg font-semibold"><Trash2 className="h-5 w-5 text-[#e2705f]" /> Delete all data for {confirmState.organization.name}?</h3>
+                <p className={`mt-2 text-sm leading-6 ${T.muted}`}>This permanently deletes the workspace: members, employees, daily and monthly reports, notifications, and the organization itself. A tombstone audit record is kept. This cannot be undone.</p>
+                <label className={`mt-4 block text-xs font-semibold uppercase tracking-widest ${T.faint}`} htmlFor="purge-confirm">Type the workspace slug “{confirmState.organization.slug}” to confirm</label>
+                <input
+                  id="purge-confirm"
+                  value={confirmSlug}
+                  onChange={(e) => setConfirmSlug(e.target.value)}
+                  autoComplete="off"
+                  className="mt-2 h-10 w-full rounded-lg border border-[#3a5548] bg-[#0f1a17] px-3 font-mono text-sm text-[#f4f1e8] focus:border-[#e2705f]/60 focus:outline-none"
+                />
+                <div className="mt-6 flex justify-end gap-3">
+                  <button onClick={() => { setConfirmState(null); setConfirmSlug('') }} className="inline-flex min-h-10 items-center rounded-lg border border-[#3a5548] px-4 text-sm font-semibold text-[#a8b8b0] transition hover:bg-[#1d332b]">Cancel</button>
+                  <button
+                    onClick={() => confirmSlug === confirmState.organization.slug && void runOwnerAction(confirmState.organization, 'purge')}
+                    disabled={confirmSlug !== confirmState.organization.slug}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#e2705f] px-4 text-sm font-bold text-[#0f1a17] transition hover:bg-[#e98a7c] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete forever
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   )
 }

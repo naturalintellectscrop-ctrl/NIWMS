@@ -8,13 +8,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const organizations = await db.organization.findMany({ select: { id: true } })
+  const organizations = await db.saaSOrganization.findMany({ select: { id: true } })
   let processed = 0
+  let paused = 0
+  let purged = 0
   for (const organization of organizations) {
-    await syncOrganizationLifecycle(organization.id)
+    const result = await syncOrganizationLifecycle(organization.id)
     processed += 1
+    if (result.action === 'grace_started' || result.action === 'subscription_expired') paused += 1
+    if (result.action === 'organization_purged') purged += 1
   }
-  return NextResponse.json({ processed })
+  return NextResponse.json({ processed, paused, purged })
 }
 
 export const runtime = 'nodejs'

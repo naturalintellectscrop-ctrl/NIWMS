@@ -231,7 +231,7 @@ model Subscription {
 
 model AuditEvent {
   id             String   @id @default(cuid())
-  organizationId String
+  organizationId String?
   actorUserId    String?
   action         String
   entityType     String?
@@ -239,7 +239,7 @@ model AuditEvent {
   metadata       String? 
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
   @@index([organizationId, action])
@@ -258,6 +258,8 @@ model SaaSOrganization {
   trialStartedAt       DateTime                 @default(now()) @map("trial_started_at")
   trialEndsAt          DateTime                 @default(now()) @map("trial_ends_at")
   graceEndsAt          DateTime?                @map("grace_ends_at")
+  bannedAt             DateTime?                @map("banned_at")
+  bannedReason         String?                  @map("banned_reason")
   deletionRequestedAt  DateTime?                @map("deletion_requested_at")
   createdAt            DateTime                 @default(now()) @map("created_at")
   updatedAt            DateTime                 @updatedAt @map("updated_at")

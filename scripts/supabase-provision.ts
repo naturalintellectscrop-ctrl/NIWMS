@@ -10,10 +10,13 @@
 //
 // What it does:
 //   1. Upserts the four default billing plans (same values as ensureDefaultPlans
-//      in src/lib/entitlements.ts — keep both in sync).
-//   2. Reads back the seeded plans.
-//   3. Lists every public base table (schema verification).
-//   4. Reports existing row counts so an operator can confirm the database is
+//      in src/lib/entitlements.ts — keep both in sync) into the legacy `Plan`
+//      catalog that powers /api/plans and the marketing pricing.
+//   2. Upserts the four SaaS plan rows (`SaaSPlan` / plans table) that trial
+//      provisioning and SaaSSubscription.planId reference by code.
+//   3. Reads back both catalogs.
+//   4. Lists every public base table (schema verification).
+//   5. Reports existing row counts so an operator can confirm the database is
 //      empty/non-production before provisioning.
 // =============================================================================
 
@@ -52,11 +55,37 @@ async function main() {
   }
   console.log('✓ plan catalog upserted')
 
+  // 1b. SaaS plan rows (SaaSSubscription.planId target, code-referenced by trial provisioning).
+  const SAAS_PLANS = [
+    { code: 'starter', name: 'Starter', monthlyPriceCents: 3000000, annualPriceCents: 32400000, maxMembers: 10 },
+    { code: 'business', name: 'Business', monthlyPriceCents: 7500000, annualPriceCents: 81000000, maxMembers: 30 },
+    { code: 'professional', name: 'Professional', monthlyPriceCents: 15000000, annualPriceCents: 162000000, maxMembers: 75 },
+    { code: 'enterprise', name: 'Enterprise', monthlyPriceCents: 0, annualPriceCents: 0, maxMembers: null },
+  ] as const
+  for (const plan of SAAS_PLANS) {
+    const data = {
+      code: plan.code,
+      name: plan.name,
+      monthlyPriceCents: plan.monthlyPriceCents,
+      annualPriceCents: plan.annualPriceCents,
+      maxMembers: plan.maxMembers,
+      features: { reporting: true },
+      isActive: true,
+    }
+    await db.saaSPlan.upsert({ where: { code: plan.code }, update: data, create: data })
+  }
+  console.log('✓ SaaS plan rows upserted')
+
   // 2. Read back.
   const plans = await db.plan.findMany({ orderBy: { monthlyPrice: 'asc' } })
   console.log(
     '✓ plans:',
     plans.map((p) => `${p.key}=UGX ${p.monthlyPrice}${p.maxEmployees === null ? ' (custom)' : ` / ≤${p.maxEmployees} employees`}`).join(' | '),
+  )
+  const saasPlans = await db.saaSPlan.findMany({ orderBy: { code: 'asc' } })
+  console.log(
+    '✓ SaaS plans:',
+    saasPlans.map((p) => `${p.code}=${p.monthlyPriceCents}c`).join(' | '),
   )
 
   // 3. List public base tables — proves the domain schema exists.
