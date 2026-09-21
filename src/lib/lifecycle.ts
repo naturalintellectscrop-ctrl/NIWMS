@@ -7,8 +7,14 @@ import { db } from '@/lib/db'
 // Owner overrides: banned (permanent, engine skips), suspended (manual off-switch, engine skips).
 // Grace period is ONE MONTH (30 days) per platform policy: paused clients keep their data
 // for a maximum of one month, then the workspace and ALL its data are fully deleted.
+// Every new workspace starts with a TWO-WEEK (14-day) free trial — no payment details.
+// Complimentary clients (billingMode 'exempt', e.g. the UFMI federation) are engine-immune:
+// they use the full platform with no payment mode and are never paused or purged.
 
 export const GRACE_PERIOD_DAYS = 30
+export const TRIAL_PERIOD_DAYS = 14
+export const BILLING_MODES = ['standard', 'exempt'] as const
+export type BillingMode = (typeof BILLING_MODES)[number]
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export function graceEndFrom(base: Date): Date {
@@ -18,6 +24,9 @@ export function graceEndFrom(base: Date): Date {
 type LifecycleSyncResult = {
   status: string
   action: 'none' | 'grace_started' | 'subscription_expired' | 'organization_purged'
+  // Billing mode of the synced organization (null when the id has no SaaS twin,
+  // e.g. a pure legacy tenant id). Consumers use it for exempt-aware access gates.
+  billingMode?: string | null
 }
 
 /**
@@ -30,12 +39,16 @@ export async function syncOrganizationLifecycle(organizationId: string): Promise
     where: { id: organizationId },
     include: { subscriptions: { select: { id: true, status: true, currentPeriodEnd: true } } },
   })
-  if (!organization) return { status: 'missing', action: 'none' }
+  if (!organization) return { status: 'missing', action: 'none', billingMode: null }
   // LEGACY federation tenants are owner-managed: the engine never pauses or purges
   // them automatically (the owner has explicit ban/suspend/extend/purge actions).
-  if (organization.organizationType === 'LEGACY') return { status: organization.status, action: 'none' }
+  if (organization.organizationType === 'LEGACY') return { status: organization.status, action: 'none', billingMode: organization.billingMode }
+  // Complimentary clients use the platform with no payment mode: the time engine
+  // never pauses, converts, or purges them (owner bans/suspensions still apply
+  // because those states short-circuit below on their own).
+  if (organization.billingMode === 'exempt') return { status: organization.status, action: 'none', billingMode: organization.billingMode }
   if (organization.status === 'archived' || organization.status === 'banned' || organization.status === 'suspended') {
-    return { status: organization.status, action: 'none' }
+    return { status: organization.status, action: 'none', billingMode: organization.billingMode }
   }
 
   const now = new Date()
@@ -102,10 +115,10 @@ export async function syncOrganizationLifecycle(organizationId: string): Promise
   // 3. Sitting in grace with the clock run out (subscription path or backdated trial path).
   if (organization.status === 'grace' && organization.graceEndsAt && now > organization.graceEndsAt) {
     await purgeOrganization(organizationId, 'One-month grace period ended with no payment')
-    return { status: 'purged', action: 'organization_purged' }
+    return { status: 'purged', action: 'organization_purged', billingMode: organization.billingMode }
   }
 
-  return { status: organization.status, action: 'none' }
+  return { status: organization.status, action: 'none', billingMode: organization.billingMode }
 }
 
 /**

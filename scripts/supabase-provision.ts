@@ -14,9 +14,12 @@
 //      catalog that powers /api/plans and the marketing pricing.
 //   2. Upserts the four SaaS plan rows (`SaaSPlan` / plans table) that trial
 //      provisioning and SaaSSubscription.planId reference by code.
-//   3. Reads back both catalogs.
-//   4. Lists every public base table (schema verification).
-//   5. Reports existing row counts so an operator can confirm the database is
+//   3. Idempotently applies the UFMI special case: if the "ufmi" organization
+//      exists, it is marked billingMode='exempt' — complimentary platform
+//      access, no payment mode required, time-engine immune.
+//   4. Reads back both catalogs.
+//   5. Lists every public base table (schema verification).
+//   6. Reports existing row counts so an operator can confirm the database is
 //      empty/non-production before provisioning.
 // =============================================================================
 
@@ -75,6 +78,26 @@ async function main() {
     await db.saaSPlan.upsert({ where: { code: plan.code }, update: data, create: data })
   }
   console.log('✓ SaaS plan rows upserted')
+
+  // 1c. UFMI special case: complimentary platform access, no payment ever required.
+  const ufmi = await db.saaSOrganization.findUnique({ where: { slug: 'ufmi' }, select: { id: true, billingMode: true, status: true } })
+  if (ufmi) {
+    if (ufmi.billingMode !== 'exempt') {
+      await db.saaSOrganization.update({
+        where: { id: ufmi.id },
+        data: {
+          billingMode: 'exempt',
+          // Rescue from a paused/expired state so the federation keeps access.
+          ...(ufmi.status === 'grace' || ufmi.status === 'trial' ? { status: 'active', graceEndsAt: null } : {}),
+        },
+      })
+      console.log('✓ ufmi organization marked billingMode=exempt (complimentary, no payment required)')
+    } else {
+      console.log('✓ ufmi organization already billingMode=exempt')
+    }
+  } else {
+    console.log('• ufmi organization not present yet — exemption will apply automatically once it exists (re-run this script)')
+  }
 
   // 2. Read back.
   const plans = await db.plan.findMany({ orderBy: { monthlyPrice: 'asc' } })

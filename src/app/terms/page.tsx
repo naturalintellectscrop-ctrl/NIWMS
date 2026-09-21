@@ -36,6 +36,13 @@ export default function TermsPage() {
           plan; if it is not converted, it enters the platform&rsquo;s normal lifecycle handling and its data may
           eventually be removed.
         </p>
+        <p>
+          We may grant certain organizations <strong>complimentary platform access</strong> at our discretion — for
+          example a federation partner operating under a direct arrangement with Natural Intellects. Complimentary
+          workspaces require no payment mode, are not subject to the trial or subscription clocks, and are never paused
+          or deleted by the automated time engine. Complimentary status can be granted or withdrawn by us at any time;
+          withdrawal takes effect under the same rules as any other workspace.
+        </p>
       </LegalSection>
 
       <LegalSection title="4. Plans, billing and VAT">

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   // that powers the marketing calculator, so the workspace never disagrees with the brochure.
   const quote = computeQuote({ monthlyPrice: monthlyPriceUgx, interval })
   return NextResponse.json({
-    organization: { id: organization.id, status: organization.status, trialStartedAt: organization.trialStartedAt, trialEndsAt: organization.trialEndsAt },
+    organization: { id: organization.id, status: organization.status, billingMode: organization.billingMode, trialStartedAt: organization.trialStartedAt, trialEndsAt: organization.trialEndsAt },
     subscription: subscription
       ? {
           status: subscription.status,

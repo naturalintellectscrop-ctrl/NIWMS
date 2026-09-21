@@ -21,7 +21,13 @@ export function canAccessTenantResource(contextOrganizationId: string, resourceO
   return contextOrganizationId === resourceOrganizationId
 }
 
-export function canAccessLifecycleState(status: string) {
+export function canAccessLifecycleState(status: string, billingMode?: string | null) {
+  // Complimentary clients (no payment mode required, e.g. UFMI) are not bound by
+  // the trial/grace clocks: every state is sign-in-able except the states the
+  // platform owner set explicitly (banned, turned off) or deletion states.
+  if (billingMode === 'exempt') {
+    return !['banned', 'suspended', 'archived', 'pending_deletion'].includes(status)
+  }
   return (ACTIVE_ORGANIZATION_STATES as readonly string[]).includes(status)
 }
 

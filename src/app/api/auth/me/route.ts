@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
     // Server-derived organization identity for the workspace shell.
     const organization = context?.organizationId
-      ? await db.saaSOrganization.findUnique({ where: { id: context.organizationId }, select: { name: true, reportDeadline: true, organizationType: true } })
+      ? await db.saaSOrganization.findUnique({ where: { id: context.organizationId }, select: { name: true, reportDeadline: true, organizationType: true, status: true, billingMode: true, trialEndsAt: true } })
       : undefined
 
     return NextResponse.json({
@@ -44,6 +44,11 @@ export async function GET(request: NextRequest) {
       organizationName: organization?.name ?? undefined,
       organizationType: organization ? (organization.organizationType === 'LEGACY' ? 'LEGACY' : 'SAAS') : undefined,
       reportDeadline: organization?.reportDeadline ?? undefined,
+      // Lifecycle fields for the workspace status chip (trial countdown,
+      // complimentary access, paused state) and the billing page.
+      lifecycleStatus: organization?.status ?? undefined,
+      billingMode: organization?.billingMode ?? undefined,
+      trialEndsAt: organization?.trialEndsAt ?? undefined,
       membershipId: context?.membershipId ?? undefined,
       organizationRole: context?.organizationRole ?? undefined,
       createdAt: user.createdAt,

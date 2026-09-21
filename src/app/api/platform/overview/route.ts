@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       take: 200,
       select: {
-        id: true, name: true, slug: true, status: true, organizationType: true,
+        id: true, name: true, slug: true, status: true, organizationType: true, billingMode: true,
         createdAt: true, trialEndsAt: true, graceEndsAt: true, bannedAt: true, bannedReason: true,
         memberships: { where: { status: 'active' }, select: { id: true } },
         subscriptions: {
@@ -47,10 +47,16 @@ export async function GET(request: NextRequest) {
   let estimatedMrrCents = 0
   let paidClients = 0
   let customPricedClients = 0
+  let exemptClients = 0
   let upcomingRenewals = 0
   const byStatus: Record<string, number> = {}
   for (const organization of organizations) {
     byStatus[organization.status] = (byStatus[organization.status] ?? 0) + 1
+    // Complimentary clients pay nothing: they never enter income metrics.
+    if (organization.billingMode === 'exempt') {
+      exemptClients += 1
+      continue
+    }
     const subscription = organization.subscriptions[0]
     if (subscription && subscription.status === 'active' && organization.status === 'active') {
       paidClients += 1
@@ -72,6 +78,7 @@ export async function GET(request: NextRequest) {
       banned: byStatus['banned'] ?? 0,
       estimatedMrrCents,
       customPricedClients,
+      exemptClients,
       upcomingRenewals,
       employees,
       reports,
@@ -87,6 +94,7 @@ export async function GET(request: NextRequest) {
         slug: organization.slug,
         status: organization.status,
         organizationType: organization.organizationType,
+        billingMode: organization.billingMode,
         createdAt: organization.createdAt,
         trialEndsAt: organization.trialEndsAt,
         graceEndsAt: organization.graceEndsAt,

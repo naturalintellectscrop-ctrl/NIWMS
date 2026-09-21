@@ -4,17 +4,18 @@ import { db } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
 import { authenticateRequest, forbiddenResponse, unauthorizedResponse } from '@/lib/auth'
 import { queueEmail, trialCredentialsEmail } from '@/lib/email'
+import { TRIAL_PERIOD_DAYS } from '@/lib/lifecycle'
 
 // Platform control-plane review of marketing trial requests.
 //
 //   PATCH — act on a request: { action: 'dismiss' } closes it without
 //           provisioning; { action: 'approve' } provisions a full trial
-//           organization (14 days), an owner admin user, an owner membership,
-//           a trialing Starter subscription, and an audit-log entry inside a
-//           single transaction. The generated temporary password is returned
-//           exactly once and never persisted in plain text.
+//           organization (TRIAL_PERIOD_DAYS = 14 days / two weeks), an owner
+//           admin user, an owner membership, a trialing Starter subscription,
+//           and an audit-log entry inside a single transaction. The generated
+//           temporary password is returned exactly once and never persisted in
+//           plain text.
 
-const TRIAL_DAYS = 14
 const PASSWORD_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
 
 function generateTemporaryPassword(length = 14): string {
@@ -84,7 +85,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const temporaryPassword = generateTemporaryPassword()
   const passwordHash = await hashPassword(temporaryPassword)
   const slug = await uniqueSlug(trialRequest.organizationName)
-  const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000)
+  const trialEndsAt = new Date(Date.now() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000)
 
   const result = await db.$transaction(async (tx) => {
     const organization = await tx.saaSOrganization.create({

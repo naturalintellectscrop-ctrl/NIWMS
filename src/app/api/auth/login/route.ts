@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { signToken, sessionCookie } from '@/lib/auth'
 import { peekRateLimit, checkRateLimit } from '@/lib/rate-limiter'
+import { canAccessLifecycleState } from '@/lib/authorization'
 
 // Brute-force guard: after 5 FAILED sign-ins for the same username within the
 // window, further attempts are rejected until the window resets. Successful
@@ -108,7 +109,16 @@ export async function POST(request: NextRequest) {
       : null
     const organization = canonicalOrganization ?? legacyOrganization
 
-    if (!isPlatformAdmin && (!organization || !['active', 'trial', 'grace'].includes(organization.status))) {
+    // Exempt-aware lifecycle gate: SaaS organizations carry billingMode (complimentary
+    // clients are not bound by trial/grace clocks); legacy organizations keep the
+    // original active/trial/grace rule (their rows have no billingMode field).
+    const gateBillingMode = organization && 'billingMode' in organization && typeof organization.billingMode === 'string'
+      ? organization.billingMode
+      : null
+    const lifecycleAllowed = organization
+      ? canAccessLifecycleState(organization.status, gateBillingMode)
+      : false
+    if (!isPlatformAdmin && !lifecycleAllowed) {
       recordFailedLogin(username)
       return NextResponse.json({ error: 'Invalid organization credentials.' }, { status: 401 })
     }

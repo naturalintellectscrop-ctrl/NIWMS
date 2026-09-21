@@ -24,6 +24,7 @@ import { useAuthStore, type User } from '@/store/auth-store'
 import { useTranslation } from '@/lib/i18n'
 import { apiPost, apiGet, apiPut, apiDelete, apiPatch, ApiError } from '@/lib/api'
 import type { MonthlyReportListItem, MonthlyReportDetail, BulkGenerateResult, PaginatedReports as MonthlyPaginatedReports } from '@/types/report'
+import Link from 'next/link'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -132,6 +133,52 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// =====================================================================
+// LIFECYCLE CHIP — workspace sidebar status (trial / complimentary / paused)
+// =====================================================================
+
+function LifecycleChip({ user }: { user: User | null }) {
+  const mode = user?.billingMode
+  const status = user?.lifecycleStatus
+  const trialEndsAt = user?.trialEndsAt
+  const daysLeft = trialEndsAt ? Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000) : null
+
+  // Compact labels: the sidebar user block is narrow — detail lives in the tooltip.
+  let chip = 'border-white/15 bg-white/5 text-white/60'
+  let label = 'Active'
+  let title = 'Plan and billing · Active'
+  if (mode === 'exempt') {
+    chip = 'border-[#7fc9a6]/40 bg-[#7fc9a6]/10 text-[#a9e3c6]'
+    label = 'Complimentary'
+    title = 'Complimentary access — no payment required, never paused'
+  } else if (status === 'trial' && daysLeft !== null) {
+    chip = 'border-[#e9b44c]/40 bg-[#e9b44c]/10 text-[#f0c26a]'
+    label = daysLeft >= 0 ? `Trial · ${daysLeft}d left` : 'Trial ended'
+    title = daysLeft >= 0
+      ? `14-day free trial — ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining`
+      : 'Trial ended — update billing to reactivate'
+  } else if (status === 'grace') {
+    chip = 'border-[#e2705f]/40 bg-[#e2705f]/10 text-[#f0a08f]'
+    label = 'Paused'
+    title = 'Paused — data held for 30 days, update billing to reactivate'
+  } else if (status === 'suspended' || status === 'banned') {
+    chip = 'border-[#e2705f]/50 bg-[#e2705f]/15 text-[#f0a08f]'
+    label = 'Disabled'
+    title = 'Access disabled by the platform owner'
+  }
+
+  return (
+    <Link
+      href="/app/billing"
+      title={title}
+      className={`mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors hover:bg-white/10 ${chip}`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+    </Link>
+  )
+}
 
 // =====================================================================
 // NAVIGATION ITEMS
@@ -530,6 +577,7 @@ function Sidebar({
               <p className="text-[10px] text-white/50">
                 {user?.role === 'admin' ? t('sidebar.administrator') : (user?.profile?.position || user?.role)}
               </p>
+              <LifecycleChip user={user} />
             </div>
           </div>
         </div>

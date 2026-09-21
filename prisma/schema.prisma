@@ -252,6 +252,10 @@ model SaaSOrganization {
   // SAAS = native workspace product; LEGACY = migrated federation that keeps the portal experience.
   organizationType     String                    @default("SAAS") @map("organization_type")
   status               String                   @default("trial")
+  // standard = normal billing lifecycle (trial → paid → grace → purge).
+  // exempt  = complimentary platform access; no payment is ever required and
+  //           the time engine never pauses or purges the organization.
+  billingMode          String                    @default("standard") @map("billing_mode")
   timezone             String                    @default("Africa/Kampala")
   reportDeadline       String                    @default("16:00") @map("report_deadline")
   reminderEnabled      Boolean                   @default(true) @map("reminder_enabled")

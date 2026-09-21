@@ -19,15 +19,17 @@ export async function getTenantContext(payload: JWTPayload | null): Promise<Tena
   if (user.role === 'super_admin') return null
   const membership = selectTenantMembership(user.memberships, payload.organizationId)
   if (membership) {
+    // The sync result carries the organization's billing mode; an id without a
+    // SaaS twin (pure legacy tenant) yields billingMode null → standard rules.
     const organization = await syncOrganizationLifecycle(membership.organizationId)
-    if (!organization || !canAccessLifecycleState(organization.status)) return null
+    if (!organization || !canAccessLifecycleState(organization.status, organization.billingMode)) return null
     return { ...payload, organizationId: membership.organizationId, membershipId: membership.id, organizationRole: membership.role }
   }
   const canonicalMembership = await db.saaSOrganizationMembership.findFirst({
     where: { userId: payload.userId, organizationId: payload.organizationId, status: 'active' },
-    select: { id: true, organizationId: true, role: true, organization: { select: { status: true } } },
+    select: { id: true, organizationId: true, role: true, organization: { select: { status: true, billingMode: true } } },
   })
-  if (!canonicalMembership || !canAccessLifecycleState(canonicalMembership.organization.status)) return null
+  if (!canonicalMembership || !canAccessLifecycleState(canonicalMembership.organization.status, canonicalMembership.organization.billingMode)) return null
   return { ...payload, organizationId: canonicalMembership.organizationId, membershipId: canonicalMembership.id, organizationRole: canonicalMembership.role }
 }
 

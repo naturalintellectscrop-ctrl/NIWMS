@@ -15,6 +15,10 @@ export interface User {
   organizationName?: string
   organizationType?: 'SAAS' | 'LEGACY'
   reportDeadline?: string
+  // Organization lifecycle context for the sidebar status chip.
+  lifecycleStatus?: string
+  billingMode?: string
+  trialEndsAt?: string
   membershipId?: string
   organizationRole?: string
   mustChangePassword?: boolean

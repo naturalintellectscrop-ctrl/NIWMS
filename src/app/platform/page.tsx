@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Building2, Users, FileText, CreditCard, ShieldAlert, ArrowLeft, RefreshCw, Search, CalendarClock, Inbox, UserPlus, KeyRound, Copy, Check, X, Loader2, Sparkles, Hourglass, Mail, ChevronDown, AlertCircle, Eye, AlignLeft, Banknote, MoreHorizontal, PauseCircle, Power, ShieldX, Timer, Trash2, Ban } from 'lucide-react'
+import { Building2, Users, FileText, CreditCard, ShieldAlert, ArrowLeft, RefreshCw, Search, CalendarClock, Inbox, UserPlus, KeyRound, Copy, Check, X, Loader2, Sparkles, Hourglass, Mail, ChevronDown, AlertCircle, Eye, AlignLeft, Banknote, MoreHorizontal, PauseCircle, Power, ShieldX, Timer, Trash2, Ban, Gift } from 'lucide-react'
 
 type OrganizationRow = {
   id: string
@@ -10,6 +10,7 @@ type OrganizationRow = {
   slug: string
   status: string
   organizationType: string
+  billingMode: string
   createdAt: string
   trialEndsAt: string
   graceEndsAt: string | null
@@ -37,6 +38,7 @@ type Overview = {
     banned: number
     estimatedMrrCents: number
     customPricedClients: number
+    exemptClients: number
     upcomingRenewals: number
     employees: number
     reports: number
@@ -88,7 +90,7 @@ type ConfirmState =
   | { kind: 'purge'; organization: OrganizationRow }
   | null
 
-type OwnerAction = 'ban' | 'unban' | 'suspend' | 'reactivate' | 'extend' | 'purge'
+type OwnerAction = 'ban' | 'unban' | 'suspend' | 'reactivate' | 'extend' | 'purge' | 'set_billing_mode'
 
 // NI product palette — dark control-plane variant (green-tinted, gold accents)
 const T = {
@@ -218,6 +220,18 @@ function TimeFrameCell({ organization }: { organization: OrganizationRow }) {
       </span>
     )
   }
+  // Complimentary clients: no payment mode, no clock — the time engine never
+  // pauses or deletes them. Only an owner ban/suspension (above) can stop them.
+  if (organization.billingMode === 'exempt') {
+    return (
+      <span className="inline-flex flex-col items-start gap-1">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e9b44c]/40 bg-[#e9b44c]/10 px-2.5 py-0.5 text-xs font-semibold text-[#e9b44c]">
+          <Gift className="h-3 w-3" /> No payment required
+        </span>
+        <span className={`text-[11px] ${T.faint}`}>Complimentary access · engine exempt</span>
+      </span>
+    )
+  }
   if (status === 'grace') {
     return (
       <span className="inline-flex flex-col items-start gap-1">
@@ -341,7 +355,7 @@ export default function PlatformPage() {
   }
 
   // Owner control action against a client organization.
-  async function runOwnerAction(organization: OrganizationRow, action: OwnerAction, options: { days?: number; reason?: string } = {}) {
+  async function runOwnerAction(organization: OrganizationRow, action: OwnerAction, options: { days?: number; reason?: string; billingMode?: string } = {}) {
     setActingId(organization.id)
     setOpenMenuId(null)
     try {
@@ -371,13 +385,17 @@ export default function PlatformPage() {
     const q = query.trim().toLowerCase()
     let rows = organizations
     if (q) rows = rows.filter((o) => o.name.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q))
-    if (statusFilter !== 'all') rows = rows.filter((o) => o.status === statusFilter)
+    if (statusFilter === 'exempt') rows = rows.filter((o) => o.billingMode === 'exempt')
+    else if (statusFilter !== 'all') rows = rows.filter((o) => o.status === statusFilter)
     return rows
   }, [organizations, query, statusFilter])
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: organizations.length }
-    for (const organization of organizations) counts[organization.status] = (counts[organization.status] ?? 0) + 1
+    const counts: Record<string, number> = { all: organizations.length, exempt: 0 }
+    for (const organization of organizations) {
+      counts[organization.status] = (counts[organization.status] ?? 0) + 1
+      if (organization.billingMode === 'exempt') counts.exempt += 1
+    }
     return counts
   }, [organizations])
 
@@ -417,7 +435,7 @@ export default function PlatformPage() {
     { label: 'Reports generated', value: metrics?.reports, icon: FileText, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
   ]
   const incomeCards = [
-    { label: 'Estimated MRR', value: metrics ? formatUgx(metrics.estimatedMrrCents) : '—', hint: `${metrics?.paidClients ?? 0} paying client${(metrics?.paidClients ?? 0) === 1 ? '' : 's'} · interval-normalized${(metrics?.customPricedClients ?? 0) > 0 ? ` · ${(metrics?.customPricedClients ?? 0)} on custom pricing excluded` : ''}`, icon: Banknote, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
+    { label: 'Estimated MRR', value: metrics ? formatUgx(metrics.estimatedMrrCents) : '—', hint: `${metrics?.paidClients ?? 0} paying client${(metrics?.paidClients ?? 0) === 1 ? '' : 's'} · interval-normalized${(metrics?.customPricedClients ?? 0) > 0 ? ` · ${(metrics?.customPricedClients ?? 0)} on custom pricing excluded` : ''}${(metrics?.exemptClients ?? 0) > 0 ? ` · ${(metrics?.exemptClients ?? 0)} complimentary excluded` : ''}`, icon: Banknote, accent: 'text-[#7fc9a6] bg-[#7fc9a6]/10' },
     { label: 'Paused clients', value: metrics?.paused, hint: `Data held ${graceDays} days, then purged`, icon: PauseCircle, accent: 'text-[#f0a08f] bg-[#e2705f]/10' },
     { label: 'Banned / off', value: (metrics?.banned ?? 0) + (metrics?.suspended ?? 0), hint: 'Sign-in blocked · data retained', icon: ShieldX, accent: 'text-[#e2705f] bg-[#e2705f]/10' },
     { label: 'Renewals ≤ 30 days', value: metrics?.upcomingRenewals, hint: `${metrics?.billingEvents ?? 0} billing events recorded`, icon: Timer, accent: 'text-[#e9b44c] bg-[#e9b44c]/10' },
@@ -430,6 +448,7 @@ export default function PlatformPage() {
     { key: 'grace', label: 'Paused' },
     { key: 'suspended', label: 'Off' },
     { key: 'banned', label: 'Banned' },
+    { key: 'exempt', label: 'Complimentary' },
   ]
 
   return (
@@ -750,7 +769,14 @@ export default function PlatformPage() {
                       </td>
                       <td className="px-5 py-4"><LifecycleBadge status={organization.status} /></td>
                       <td className="px-5 py-4">
-                        {organization.subscription ? (
+                        {organization.billingMode === 'exempt' ? (
+                          <span className="inline-flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e9b44c]/40 bg-[#e9b44c]/10 px-2.5 py-0.5 text-xs font-semibold text-[#e9b44c]"><Gift className="h-3 w-3" /> Complimentary</span>
+                            </span>
+                            <span className={`text-[11px] ${T.faint}`}>No payment required</span>
+                          </span>
+                        ) : organization.subscription ? (
                           <span className="inline-flex flex-col gap-0.5">
                             <span className="inline-flex items-center gap-2">
                               <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2.5 py-0.5 text-xs text-[#d8e2dc]">{organization.subscription.planName ?? 'Unassigned'}</span>
@@ -780,6 +806,17 @@ export default function PlatformPage() {
                           <>
                             <button aria-hidden tabIndex={-1} onClick={() => setOpenMenuId(null)} className="fixed inset-0 z-20 cursor-default" />
                             <div role="menu" aria-label={`Manage ${organization.name}`} className="absolute right-5 top-full z-30 mt-1 w-60 overflow-hidden rounded-xl border border-[#3a5548] bg-[#12211d] py-1.5 text-left shadow-2xl shadow-black/40">
+                              {/* No-payment (complimentary) mode toggle */}
+                              {organization.billingMode === 'exempt' ? (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'set_billing_mode', { billingMode: 'standard' })} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#e9b44c] transition-colors hover:bg-[#1d332b]">
+                                  <CreditCard className="h-3.5 w-3.5" /> Remove no-payment flag
+                                </button>
+                              ) : (
+                                <button role="menuitem" onClick={() => void runOwnerAction(organization, 'set_billing_mode', { billingMode: 'exempt' })} className="flex min-h-9 w-full items-center gap-2.5 px-3 text-xs text-[#e9b44c] transition-colors hover:bg-[#1d332b]">
+                                  <Gift className="h-3.5 w-3.5" /> Mark as no-payment
+                                </button>
+                              )}
+                              <div className={`my-1.5 border-t ${T.border}`} />
                               <p className={`px-3 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-widest ${T.faint}`}>Extend time</p>
                               {[7, 30, 90].map((days) => (
                                 <button

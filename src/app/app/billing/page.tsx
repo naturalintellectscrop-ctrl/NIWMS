@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, CalendarRange, Check, CreditCard, Loader2, LockKeyhole, RefreshCw, ShieldCheck, TrendingUp } from 'lucide-react'
+import { ArrowLeft, CalendarRange, Check, CreditCard, Gift, Loader2, LockKeyhole, RefreshCw, ShieldCheck, TrendingUp } from 'lucide-react'
 import Link from 'next/link'
 import { computeQuote, type BillingInterval, type Quote } from '@/lib/billing/pricing'
 
 type BillingData = {
-  organization: { status: string; trialEndsAt: string | null; graceEndsAt: string | null } | null
+  organization: { status: string; billingMode?: string; trialEndsAt: string | null; graceEndsAt: string | null } | null
   usage: { employeeCount: number; employeeLimit: number | null; canAddEmployee: boolean }
   subscription: {
     status: string
@@ -92,6 +92,10 @@ export default function BillingPage() {
   }
 
   const capacityPercent = data?.usage.employeeLimit ? Math.min(100, Math.round((data.usage.employeeCount / data.usage.employeeLimit) * 100)) : 0
+  const isExempt = data?.organization?.billingMode === 'exempt'
+  const trialDaysLeft = data?.organization?.trialEndsAt
+    ? Math.ceil((new Date(data.organization.trialEndsAt).getTime() - Date.now()) / 86_400_000)
+    : null
 
   return (
     <main className="min-h-screen bg-[#f4f6f8] px-5 py-10 text-[#17212b] lg:px-8">
@@ -109,6 +113,18 @@ export default function BillingPage() {
         </div>
         {loading ? (
           <div className="flex items-center gap-3 text-[#64716f]"><RefreshCw className="h-4 w-4 animate-spin" /> Loading subscription…</div>
+        ) : isExempt ? (
+          <section className="product-card border-[#c47b32]/40 bg-gradient-to-br from-white via-white to-[#fbf4e4] p-6 sm:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-6">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#b2761b]"><Gift className="h-3.5 w-3.5" /> Complimentary access</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[#123c36]">No payment required</h2>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-[#64716f]">This organization has full platform access by a direct arrangement with Natural Intellects. No plan, billing interval, or payment method is needed, and the workspace is never paused or deleted by the subscription time engine.</p>
+              </div>
+              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c47b32]/10 text-[#c47b32]"><Gift className="h-5 w-5" aria-hidden="true" /></span>
+            </div>
+            <p className="mt-6 flex items-center gap-2 border-t border-[#dce4e1] pt-5 text-xs text-[#738078]"><ShieldCheck className="h-3.5 w-3.5 text-[#c47b32]" /> Managed by the Natural Intellects platform owner</p>
+          </section>
         ) : data?.subscription ? (
           <section className="product-card p-6 sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-6">
@@ -121,7 +137,7 @@ export default function BillingPage() {
                 <p className="text-3xl font-semibold text-[#123c36]">{data.subscription.plan.monthlyPrice === 0 ? 'Custom' : data.subscription.quote ? formatUgx(data.subscription.quote.effectiveMonthlyPrice) : formatUgx(data.subscription.plan.monthlyPrice)}<span className="text-sm font-normal text-[#829086]"> / month</span></p>
                 <p className="mt-1 text-xs capitalize text-[#738078]">Billed {data.subscription.billingInterval}{data.subscription.quote && data.subscription.plan.monthlyPrice > 0 ? ` · ${formatUgx(data.subscription.quote.total)} incl. VAT` : ''}</p>
                 {data.subscription.currentPeriodEnd && <p className="mt-2 text-xs text-[#738078]">Renews {new Date(data.subscription.currentPeriodEnd).toLocaleDateString()}</p>}
-                {data.subscription.status === 'trialing' && data.organization?.trialEndsAt && <p className="mt-1 text-xs text-[#b2761b]">Trial ends {new Date(data.organization.trialEndsAt).toLocaleDateString()}</p>}
+                {data.subscription.status === 'trialing' && data.organization?.trialEndsAt && <p className="mt-1 text-xs text-[#b2761b]">Trial ends {new Date(data.organization.trialEndsAt).toLocaleDateString()}{trialDaysLeft !== null && trialDaysLeft >= 0 ? ` · ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'} left of your 14-day free trial` : ''}</p>}
               </div>
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-[#dce4e1] pt-6">
@@ -133,7 +149,7 @@ export default function BillingPage() {
         ) : (
           <p className="rounded-2xl border border-[#dce4e1] bg-white p-6 text-[#64716f]">No subscription is attached to this organization yet.</p>
         )}
-        {data?.subscription && data.subscription.plan.monthlyPrice > 0 && (
+        {data?.subscription && !isExempt && data.subscription.plan.monthlyPrice > 0 && (
           <section className="product-card mt-6 p-6">
             <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#829086]"><CalendarRange className="h-4 w-4 text-[#c47b32]" /> Billing interval</p>
             <p className="mt-2 text-sm leading-6 text-[#64716f]">The interval decides the exact amount charged and the period it covers. {data.subscription.status === 'trialing' ? 'It takes effect when your trial converts.' : 'Changing it starts a fresh period today.'}</p>
@@ -168,7 +184,7 @@ export default function BillingPage() {
             <section className="product-card p-6">
               <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#829086]"><ShieldCheck className="h-4 w-4 text-[#c47b32]" /> Lifecycle</p>
               <p className="mt-3 text-xl font-semibold capitalize text-[#123c36]">{data.organization?.status ?? 'unknown'}</p>
-              <p className="mt-2 text-sm leading-6 text-[#64716f]">{data.organization?.status === 'trial' ? `Trial ends ${data.organization.trialEndsAt ? new Date(data.organization.trialEndsAt).toLocaleDateString() : 'soon'}.` : data.organization?.status === 'grace' ? 'Grace access is active. Update your plan to avoid suspension.' : 'Your organization access is governed by its current subscription.'}</p>
+              <p className="mt-2 text-sm leading-6 text-[#64716f]">{isExempt ? 'Complimentary access is active — this workspace is never paused or deleted.' : data.organization?.status === 'trial' ? `Trial ends ${data.organization.trialEndsAt ? new Date(data.organization.trialEndsAt).toLocaleDateString() : 'soon'}${trialDaysLeft !== null && trialDaysLeft >= 0 ? ` — ${trialDaysLeft} day${trialDaysLeft === 1 ? '' : 's'} of your 14-day free trial remain` : ''}.` : data.organization?.status === 'grace' ? 'Grace access is active. Update your plan to avoid suspension.' : 'Your organization access is governed by its current subscription.'}</p>
             </section>
             <section className="product-card p-6">
               <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#829086]"><TrendingUp className="h-4 w-4 text-[#c47b32]" /> Capacity</p>

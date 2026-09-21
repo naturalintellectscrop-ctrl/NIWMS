@@ -2,20 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { authenticateRequest, forbiddenResponse, unauthorizedResponse } from '@/lib/auth'
-import { graceEndFrom, purgeOrganization } from '@/lib/lifecycle'
+import { graceEndFrom, purgeOrganization, BILLING_MODES } from '@/lib/lifecycle'
 
 // Platform-owner client control actions.
 //
 //   POST /api/platform/organizations/[id]/actions
-//   { action: 'ban' | 'unban' | 'suspend' | 'reactivate' | 'extend' | 'purge',
-//     days?: number, target?: 'trial' | 'subscription', reason?: string }
+//   { action: 'ban' | 'unban' | 'suspend' | 'reactivate' | 'extend' | 'purge' | 'set_billing_mode',
+//     days?: number, target?: 'trial' | 'subscription', reason?: string,
+//     billingMode?: 'standard' | 'exempt' }
 //
 // Every action is super_admin-only, audited twice: a global AuditEvent row
 // (organizationId is a plain string, so it survives even a full purge) and an
 // organization-scoped SaaSAuditLog entry where the organization still exists.
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const ACTIONS = ['ban', 'unban', 'suspend', 'reactivate', 'extend', 'purge'] as const
+const ACTIONS = ['ban', 'unban', 'suspend', 'reactivate', 'extend', 'purge', 'set_billing_mode'] as const
 type Action = (typeof ACTIONS)[number]
 
 async function audit(input: {
@@ -201,6 +202,58 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     })
     await audit({ globalActorId: actorId, organizationId: id, organizationName: organization.name, action: 'SUBSCRIPTION_EXTENDED', metadata: { days, currentPeriodEnd }, orgScoped: true })
     return NextResponse.json({ organization: updated, message: `Extended "${organization.name}" subscription by ${days} day(s) — now ends ${currentPeriodEnd.toISOString().slice(0, 10)}.` })
+  }
+
+  // ---- SET_BILLING_MODE: grant or remove a no-payment (complimentary) flag. ----
+  // Exempt clients use the full platform with no payment mode required; the time
+  // engine never pauses or purges them. Granting exemption rescues a paused or
+  // trialing client back to active; revoking simply restores the standard
+  // lifecycle — the engine's next sweep applies the normal clock rules.
+  if (action === 'set_billing_mode') {
+    const billingMode = typeof body?.billingMode === 'string' ? body.billingMode : ''
+    if (!(BILLING_MODES as readonly string[]).includes(billingMode)) {
+      return NextResponse.json({ error: "billingMode must be 'standard' or 'exempt'." }, { status: 400 })
+    }
+    if (billingMode === organization.billingMode) {
+      return NextResponse.json({ error: `"${organization.name}" is already on the ${billingMode} billing mode.` }, { status: 409 })
+    }
+    const rescueToActive = billingMode === 'exempt' && (organization.status === 'grace' || organization.status === 'trial')
+    // Revoking exemption restores the standard lifecycle: recompute the state from
+    // the client's actual clocks (same rule as unban) so a rescued client cannot
+    // linger in 'active' without a subscription or valid trial time.
+    let revokeStatus: { status: string; graceEndsAt: Date | null } | null = null
+    if (billingMode === 'standard') {
+      const periodValid = subscription?.status === 'active' && !!subscription.currentPeriodEnd && subscription.currentPeriodEnd > now
+      const trialValid = organization.trialEndsAt > now
+      if (periodValid) revokeStatus = { status: 'active', graceEndsAt: null }
+      else if (trialValid) revokeStatus = { status: 'trial', graceEndsAt: null }
+      else if (organization.status !== 'banned' && organization.status !== 'suspended') {
+        revokeStatus = { status: 'grace', graceEndsAt: graceEndFrom(now) }
+      }
+    }
+    const updated = await db.saaSOrganization.update({
+      where: { id },
+      data: {
+        billingMode,
+        ...(rescueToActive ? { status: 'active', graceEndsAt: null } : {}),
+        ...(revokeStatus ?? {}),
+      },
+      select: { id: true, status: true, billingMode: true },
+    })
+    await audit({
+      globalActorId: actorId,
+      organizationId: id,
+      organizationName: organization.name,
+      action: 'ORG_BILLING_MODE_SET',
+      metadata: { billingMode, previousMode: organization.billingMode, rescuedToActive: rescueToActive, recomputedStatus: revokeStatus?.status ?? null },
+      orgScoped: true,
+    })
+    return NextResponse.json({
+      organization: updated,
+      message: billingMode === 'exempt'
+        ? `"${organization.name}" now has complimentary access — no payment required, the time engine will never pause or delete it.`
+        : `"${organization.name}" returned to standard billing — the time engine applies the normal trial/subscription clocks again.`,
+    })
   }
 
   // ---- PURGE: immediate full data deletion (otherwise automatic after grace). ----
