@@ -122,7 +122,7 @@ const ugx = (amount: number) => `UGX ${Math.round(amount).toLocaleString('en-US'
 export default function MarketingPage() {
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [interval, setInterval] = useState<BillingInterval>('annual')
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('annual')
   const [plans, setPlans] = useState<PlanCard[]>(FALLBACK_PLANS)
   const [activeSection, setActiveSection] = useState('features')
   const [ctaEmail, setCtaEmail] = useState('')
@@ -318,9 +318,9 @@ export default function MarketingPage() {
                   ? Math.round((1 - computeQuote({ monthlyPrice: reference.monthlyPrice, interval: key }).effectiveMonthlyPrice / reference.monthlyPrice) * 100)
                   : 0
                 return (
-                  <button key={key} type="button" aria-pressed={interval === key} onClick={() => setInterval(key)} className={`rounded-lg px-4 py-2 font-semibold transition-colors ${interval === key ? 'bg-[#123c36] text-white shadow-sm' : 'text-[#5b6865] hover:text-[#123c36]'}`}>
+                  <button key={key} type="button" aria-pressed={billingInterval === key} onClick={() => setBillingInterval(key)} className={`rounded-lg px-4 py-2 font-semibold transition-colors ${billingInterval === key ? 'bg-[#123c36] text-white shadow-sm' : 'text-[#5b6865] hover:text-[#123c36]'}`}>
                     {key === 'monthly' ? 'Monthly' : key === 'quarterly' ? 'Quarterly' : 'Annual'}
-                    {savePct > 0 && <span className={`ml-1.5 text-xs font-bold ${interval === key ? 'text-[#e9b44c]' : 'text-[#c47b32]'}`}>−{savePct}%</span>}
+                    {savePct > 0 && <span className={`ml-1.5 text-xs font-bold ${billingInterval === key ? 'text-[#e9b44c]' : 'text-[#c47b32]'}`}>−{savePct}%</span>}
                   </button>
                 )
               })}
@@ -330,7 +330,7 @@ export default function MarketingPage() {
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {plans.map((plan) => {
               const custom = plan.monthlyPrice === null
-              const quote = custom ? null : computeQuote({ monthlyPrice: plan.monthlyPrice as number, interval })
+              const quote = custom ? null : computeQuote({ monthlyPrice: plan.monthlyPrice as number, interval: billingInterval })
               const savingsPct = quote && quote.monthlyEquivalentTotal > 0 ? Math.round((quote.savings / quote.monthlyEquivalentTotal) * 100) : 0
               return (
                 <article key={plan.key} className={`reveal reveal-up relative flex flex-col rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_-18px_rgba(18,60,54,0.28)] ${plan.featured ? 'border-[#c47b32] bg-[#fbf4e4] shadow-[0_14px_36px_-18px_rgba(196,123,50,0.45)]' : 'border-[#dce4e1] bg-white'}`}>
@@ -355,14 +355,14 @@ export default function MarketingPage() {
                   )}
                   <p className="mt-4 text-sm font-medium text-[#304237]">{plan.limit}</p>
                   <p className="mt-2 min-h-10 text-sm leading-6 text-[#5b6865]">{plan.description}</p>
-                  <Link href={custom ? '/start-free-trial' : `/start-free-trial?plan=${plan.key}&interval=${interval}`} className={`mt-6 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all hover:-translate-y-px ${plan.featured ? 'bg-[#123c36] text-white hover:bg-[#1d5249]' : 'border border-[#d2ddda] bg-white text-[#123c36] hover:border-[#123c36]/40 hover:bg-[#f4f6f8]'}`}>
+                  <Link href={custom ? '/start-free-trial' : `/start-free-trial?plan=${plan.key}&interval=${billingInterval}`} className={`mt-6 inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition-all hover:-translate-y-px ${plan.featured ? 'bg-[#123c36] text-white hover:bg-[#1d5249]' : 'border border-[#d2ddda] bg-white text-[#123c36] hover:border-[#123c36]/40 hover:bg-[#f4f6f8]'}`}>
                     Get started <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
                   </Link>
                 </article>
               )
             })}
           </div>
-          <PricingCalculator interval={interval} plans={plans} />
+          <PricingCalculator interval={billingInterval} plans={plans} />
         </div>
       </section>
 
