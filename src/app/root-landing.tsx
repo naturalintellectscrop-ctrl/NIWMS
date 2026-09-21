@@ -422,7 +422,7 @@ export default function MarketingPage() {
 
       {/* ============================= FOOTER ========================== */}
       <footer className="mt-auto border-t border-[#dce4e1] bg-white">
-        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-14 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:px-8">
+        <div className="mx-auto grid max-w-7xl gap-12 px-5 py-14 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr] lg:px-8">
           <div>
             <Link href="/" className="flex items-center gap-2.5" aria-label="Natural Intellects home">
               <img src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Natural%20Intellects%20LTD%20LOGO-kW8y0UnJCLLYKZinLc70NoJI9YPSup.png" alt="Natural Intellects Ltd" className="h-10 w-10 rounded-full object-cover" />
@@ -452,6 +452,14 @@ export default function MarketingPage() {
               <li><a href="#faq" className="transition-colors hover:text-[#123c36]">FAQ</a></li>
               <li><a href="mailto:hello@naturalintellects.com" className="transition-colors hover:text-[#123c36]">Contact support</a></li>
               <li><Link href="/login" className="transition-colors hover:text-[#123c36]">Log In</Link></li>
+            </ul>
+          </nav>
+          <nav aria-label="Legal">
+            <h3 className="text-sm font-bold text-[#14201c]">Legal</h3>
+            <ul className="mt-4 space-y-2.5 text-sm text-[#5b6865]">
+              <li><Link href="/privacy" className="transition-colors hover:text-[#123c36]">Privacy Policy</Link></li>
+              <li><Link href="/terms" className="transition-colors hover:text-[#123c36]">Terms of Service</Link></li>
+              <li><a href="mailto:naturalintellectscrop@gmail.com" className="transition-colors hover:text-[#123c36]">Data requests</a></li>
             </ul>
           </nav>
         </div>
