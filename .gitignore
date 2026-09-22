@@ -58,4 +58,9 @@ server.log
 /upload/
 
 # Worklog
-worklog.mdtool-results/
+worklog.md
+tool-results/
+
+# owner-only access guide (real credentials) — never commit
+NIWMS-ACCESS-GUIDE.md
+UFMI-LOGIN-CREDENTIALS.txt
