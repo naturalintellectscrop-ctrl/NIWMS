@@ -30,6 +30,7 @@ const LIMITS: Record<string, RateLimitConfig> = {
   password_change: { maxRequests: 5, windowMs: 15 * 60 * 1000 },     // 5 per 15 min (brute-force guard on current-password check)
   login_attempt: { maxRequests: 5, windowMs: 15 * 60 * 1000 },       // 5 FAILED logins per username per 15 min (brute-force guard)
   billing_quote: { maxRequests: 60, windowMs: 15 * 60 * 1000 },      // 60 anonymous quote lookups per 15 min per IP bucket
+  billing_checkout: { maxRequests: 10, windowMs: 15 * 60 * 1000 },   // 10 checkout initiations per admin per 15 min (money-touching endpoint)
 }
 
 export function checkRateLimit(

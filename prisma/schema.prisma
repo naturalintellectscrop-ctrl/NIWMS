@@ -270,6 +270,7 @@ model SaaSOrganization {
   memberships          SaaSOrganizationMembership[]
   subscriptions        SaaSSubscription[]
   billingEvents        SaaSBillingEvent[]
+  payments             SaaSPayment[]
   auditLogs            SaaSAuditLog[]
   usageEvents          SaaSUsageEvent[]
   deletionRequests     SaaSDeletionRequest[]
@@ -312,6 +313,7 @@ model SaaSPlan {
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
   subscriptions      SaaSSubscription[]
+  payments           SaaSPayment[]
 
   @@map("plans")
 }
@@ -352,6 +354,61 @@ model SaaSBillingEvent {
   @@unique([provider, providerEventId])
   @@index([organizationId, createdAt])
   @@map("billing_events")
+}
+
+// =============================================================================
+// SaaSPayment — one NIWMS payment attempt/transaction against Nylon Pay.
+//
+// Nylon Pay is the sole payment provider. The merchant `reference` (UUID) is
+// also the idempotency key on Nylon Pay: retrying a network failure reuses the
+// same reference so the provider replays the transaction instead of
+// double-charging (spec: "Reference uniqueness and replay").
+//
+// Money: `amountUgx` is whole UGX — ISO 4217 gives UGX exponent 0, and the
+// canonical billing engine (computeQuote) already produces whole-UGX totals.
+// No client input ever sets this amount.
+// =============================================================================
+model SaaSPayment {
+  id                    String           @id @default(uuid()) @db.Uuid
+  organizationId        String           @map("organization_id") @db.Uuid
+  planId                String           @map("plan_id") @db.Uuid
+  provider              String           @default("nylonpay")
+  reference             String           @unique
+  providerTransactionId String?          @map("provider_transaction_id")
+  providerInvoiceId     String?          @map("provider_invoice_id")
+  invoiceNumber         String?          @map("invoice_number")
+  checkoutUrl           String?          @map("checkout_url")
+  // initial = first/upgrade charge · renewal = per-period collection for an
+  // active subscription (Nylon Pay's current API has no subscription plans,
+  // so renewals are NIWMS-driven per-period hosted invoices).
+  kind                  String           @default("initial")
+  // Provider statuses (spec v2.4.0): pending | processing | on_hold |
+  // successful | failed | cancelled.
+  status                String           @default("pending")
+  billingInterval       String           @map("billing_interval")
+  amountUgx             Int              @map("amount_ugx")
+  currency              String           @default("UGX")
+  description           String           @default("")
+  customerName          String?          @map("customer_name")
+  customerEmail         String?          @map("customer_email")
+  customerPhone         String?          @map("customer_phone")
+  periodStart           DateTime?        @map("period_start")
+  periodEnd             DateTime?        @map("period_end")
+  mode                  String?
+  failureReason         String?          @map("failure_reason")
+  failureCode           String?          @map("failure_code")
+  initiatedByUserId     String?          @map("initiated_by_user_id")
+  initiatedAt           DateTime         @default(now()) @map("initiated_at")
+  statusChangedAt       DateTime         @default(now()) @map("status_changed_at")
+  completedAt           DateTime?        @map("completed_at")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+  organization          SaaSOrganization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                  SaaSPlan         @relation(fields: [planId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([status, updatedAt])
+  @@map("payments")
 }
 
 model SaaSAuditLog {

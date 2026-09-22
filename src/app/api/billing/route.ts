@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authenticateRequest } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { requireTenant, requireOrganizationAdmin } from '@/lib/tenant'
-import { addCalendarMonths, computeQuote, type BillingInterval } from '@/lib/billing/pricing'
+import { computeQuote, type BillingInterval } from '@/lib/billing/pricing'
+import { checkRateLimit } from '@/lib/rate-limiter'
+import { PaymentServiceError, startCheckout, toPaymentView } from '@/lib/payments/service'
 
 const BILLING_INTERVAL_VALUES: BillingInterval[] = ['monthly', 'quarterly', 'annual']
 
@@ -25,6 +27,13 @@ export async function GET(request: NextRequest) {
   // Definitive numbers for the organization's current interval — the same engine
   // that powers the marketing calculator, so the workspace never disagrees with the brochure.
   const quote = computeQuote({ monthlyPrice: monthlyPriceUgx, interval })
+  // Payment history — real server state from the payments table, newest first.
+  const payments = await db.saaSPayment.findMany({
+    where: { organizationId: organization.id },
+    include: { plan: { select: { name: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  })
   return NextResponse.json({
     organization: { id: organization.id, status: organization.status, billingMode: organization.billingMode, trialStartedAt: organization.trialStartedAt, trialEndsAt: organization.trialEndsAt },
     subscription: subscription
@@ -48,6 +57,7 @@ export async function GET(request: NextRequest) {
       : null,
     plan,
     usage: { employeeCount, employeeLimit, canAddEmployee: employeeLimit === null || employeeCount < employeeLimit },
+    payments: payments.map((p) => toPaymentView(p, p.plan.name)),
   })
 }
 
@@ -61,22 +71,16 @@ export async function POST(request: NextRequest) {
     if (!interval) return NextResponse.json({ error: 'interval must be one of monthly, quarterly, annual' }, { status: 400 })
     const subscription = await db.saaSSubscription.findUnique({ where: { organizationId: context.organizationId }, include: { plan: true } })
     if (!subscription) return NextResponse.json({ error: 'No subscription found for this organization' }, { status: 404 })
-    if (subscription.status !== 'active' && subscription.status !== 'trialing') {
-      return NextResponse.json({ error: 'Billing interval can only be changed on active or trialing subscriptions' }, { status: 409 })
+    // Interval PREFERENCE changes are a trial-stage convenience. On an active
+    // (paid) subscription the interval governs real money and a new paid
+    // period: it may only change through a verified Nylon Pay checkout, never
+    // by silently resetting the period here.
+    if (subscription.status !== 'trialing') {
+      return NextResponse.json({ error: 'The billing interval on an active subscription changes through checkout — start a checkout for the interval you want.' }, { status: 409 })
     }
-    const now = new Date()
-    // On an active subscription the new interval starts a fresh period today;
-    // while trialing it only sets the preference that will govern the first charge.
-    const data = subscription.status === 'active'
-      ? {
-          billingInterval: interval,
-          currentPeriodStart: now,
-          currentPeriodEnd: addCalendarMonths(now, interval === 'annual' ? 12 : interval === 'quarterly' ? 3 : 1),
-          canceledAt: null,
-        }
-      : { billingInterval: interval }
+    const data = { billingInterval: interval }
     const updated = await db.saaSSubscription.update({ where: { id: subscription.id }, data })
-    const quote = computeQuote({ monthlyPrice: subscription.plan.monthlyPriceCents / 100, interval, startsAt: now })
+    const quote = computeQuote({ monthlyPrice: subscription.plan.monthlyPriceCents / 100, interval })
     await db.saaSAuditLog.create({
       data: {
         organizationId: context.organizationId,
@@ -84,7 +88,7 @@ export async function POST(request: NextRequest) {
         action: 'BILLING_INTERVAL_CHANGED',
         resourceType: 'SaaSSubscription',
         resourceId: subscription.id,
-        metadata: JSON.stringify({ interval, chargeTotalUgx: quote.total, periodEnd: quote.periodEnd }),
+        metadata: JSON.stringify({ interval, chargeTotalUgx: quote.total }),
       },
     })
     return NextResponse.json({ subscription: updated, quote })
@@ -96,5 +100,32 @@ export async function POST(request: NextRequest) {
     await db.saaSAuditLog.create({ data: { organizationId: context.organizationId, actorUserId: context.userId, action: 'SUBSCRIPTION_CANCELLED', resourceType: 'SaaSSubscription', resourceId: subscription.id, metadata: {} } })
     return NextResponse.json({ subscription: updated })
   }
-  return NextResponse.json({ error: 'Billing provider checkout is not configured for this deployment' }, { status: 503 })
+  if (body?.action === 'start_checkout') {
+    // Brute-force/abuse guard on a money-touching endpoint (successful attempts
+    // consume quota too — a checkout initiation is a real, billable intent).
+    const limit = checkRateLimit(context.userId, 'billing_checkout')
+    if (!limit.allowed) {
+      return NextResponse.json({ error: 'Too many checkout attempts. Please try again in 15 minutes.' }, { status: 429 })
+    }
+    try {
+      // Server authority: organization comes from the session tenant context,
+      // plan + interval are validated server-side, and the amount is computed
+      // by the canonical billing engine inside startCheckout. The browser
+      // cannot set price, currency, organization, or payment status.
+      const result = await startCheckout({
+        organizationId: context.organizationId,
+        userId: context.userId,
+        planCode: body?.planCode,
+        interval: body?.interval,
+        kind: 'initial',
+      })
+      return NextResponse.json({ payment: result.payment, reused: result.reused, quote: result.quote })
+    } catch (error) {
+      if (error instanceof PaymentServiceError) {
+        return NextResponse.json({ error: error.message }, { status: error.status })
+      }
+      return NextResponse.json({ error: 'Unable to start checkout right now' }, { status: 500 })
+    }
+  }
+  return NextResponse.json({ error: 'Unknown billing action' }, { status: 400 })
 }
