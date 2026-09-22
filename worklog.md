@@ -459,3 +459,23 @@ Work Log:
 Stage Summary:
 - The 2-week trial is now a named product constant enforced end-to-end (provisioning → DB default → engine → workspace countdown chip → billing copy → terms), and UFMI is a first-class special case: billingMode='exempt' gives the federation full platform use with no payment mode, immunity from the pause/purge time engine, an exempt-aware login gate, a visible "No payment required" state in the owner's Control Center and the client's billing page, and an owner-side toggle (audited, clock-safe on revoke) — pre-provisioned for production via the updated supabase-provision script.
 - Next priorities: (1) once Vercel DATABASE_URL/JWT_SECRET are set, re-run the E2E auth journey against production and re-run scripts/supabase-provision.ts there (it will exempt UFMI the moment the org exists); (2) optional lifecycle emails (GRACE_STARTED / trial ending soon) via the existing outbox; (3) consider surfacing a small "Complimentary" marker in the legacy /portal sidebar so UFMI admins also see their special status inside the portal experience.
+
+---
+Task ID: 20
+Agent: Z.ai Code (main orchestrator)
+Task: Owner-requested access guide — one MD file with all directories and login credentials (NIWMS-ACCESS-GUIDE.md)
+
+Work Log:
+- AUDITED FIRST: worklog Tasks 1–19, provision scripts (provision-platform-owner.ts, provision-ufmi.js, staging-seed.js, qa-seed-clients.ts), qa-round5/6 scripts, .env.example, local SQLite DB dump (bun:sqlite) for the definitive account inventory.
+- BUILT NIWMS-ACCESS-GUIDE.md (owner-only, git-ignored): app route map (/, /login, /start-free-trial, /app, /app/billing, /portal, /platform, /privacy, /terms + API groups), filesystem directory map, ALL logins — production owner (naturalintellectscrop@gmail.com, password handed once in chat + reset command), UFMI exempt tenant (Admin/Admin@UFMI256, UFMI001–3/Cinema@UFMI2026), local sandbox accounts (owner@ni.local/OwnerQa-2026-Pw, admin@niltd.com, synthetic-org-a/b admins+employees — Ni#Synthetic2026, QA trial tenants incl. rl1@probe.example/FreshStart2026), legacy retired system (admin/admin123, emp123), staging env-password accounts, databases (local SQLite + Supabase pooler/direct URLs + dashboard), external services (GitHub branches, Vercel env setup), env-var reference, credential-maintenance cheat-sheet, security invariants.
+- SECURITY: added NIWMS-ACCESS-GUIDE.md + UFMI-LOGIN-CREDENTIALS.txt to .gitignore (verified via git check-ignore) — zero credentials committed.
+- FIXED .gitignore corruption: pre-existing "worklog.mdtool-results/" fused line split back into worklog.md + tool-results/.
+- FIXED LOCAL ENV DRIFT: sandbox had wiped .env to DATABASE_URL-only and dev.log showed db:push P1012 (PG schema + file: URL) → login 503 "Authentication service is not configured". Restored .env (fresh JWT_SECRET via openssl, ADMIN_SEED_PASSWORD=Ni#Synthetic2026, EMAIL_PROVIDER=outbox, BILLING_PROVIDER=mock).
+- PERMANENT FIX for the recurring schema swap dance: scripts/prisma.js now auto-appends `--schema prisma/schema.local.prisma` whenever DATABASE_URL is file: (SQLite) — local db:push/generate works with the PostgreSQL schema on disk, production (postgres://) unaffected. Verified: PG schema on disk + file: URL → "already in sync" + SQLite client generated. Committed 84887a2 and pushed to origin/main + origin/niwms/chat-zai (0/0 divergence).
+- BROWSER VERIFIED (agent-browser 1440x900): /login renders; owner@ni.local native-setter login → router.replace('/platform') → Control Center live metrics (9 orgs, 15 employees, 7 trial, MRR UGX 75,000 "1 paying client · 1 complimentary excluded", 2 paused, 0 banned) + trial pipeline; UFMI Admin@UFMI256 → lands /portal (legacy routing intact); org-A admin login re-verified via curl. Console clean after Fast Refresh noise. Screenshots tool-results/qa/round7-login.png, round7-platform.png.
+- GATES: server healthy on :3000, login matrix green, git clean except expected runtime artifacts; no secrets in any committed file.
+
+Stage Summary:
+- The owner now has a single, accurate, git-protected reference (NIWMS-ACCESS-GUIDE.md) for every route, directory, account, password, database URL, and maintenance command — with the production owner password handled honestly (shown once, reset path documented).
+- Local sandbox boot fragility is permanently fixed (prisma.js auto-schema swap + restored .env), so future cron rounds/sandbox restarts no longer hit the P1012 auth-503 trap.
+- Next priorities: unchanged from Task 19 — once Vercel DATABASE_URL + JWT_SECRET are set, re-run the E2E auth journey against production and scripts/supabase-provision.ts (auto-exempts UFMI on first appearance); optional lifecycle emails; complimentary marker in /portal sidebar.
