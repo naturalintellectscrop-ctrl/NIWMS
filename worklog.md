@@ -502,3 +502,21 @@ Stage Summary:
 - NIWMS now charges real money through Nylon Pay end-to-end: server-computed prices, hosted checkout, signed+idempotent webhooks, server-side verification/reconciliation, lifecycle-integrated activation/renewals, auditable payment history — single provider, clean internal boundary, no multi-provider abstraction.
 - Recurring billing is NIWMS-driven per-period invoices because Nylon Pay's current API has no subscription resource — the honest, documented mechanism; revisit if Nylon ships payment plans.
 - Remaining for the owner: set NYLONPAY_API_KEY / NYLONPAY_API_SECRET / NYLONPAY_WEBHOOK_SECRET (+ NYLONPAY_BASE_URL only if pointing at a custom endpoint) in Vercel alongside DATABASE_URL/JWT_SECRET, deploy, configure the webhook URL in the Nylon dashboard (https://<domain>/api/billing/webhook/nylonpay), then run scripts/nylonpay-sandbox-cert.ts against the deployment to convert the one BLOCKED step into a real sandbox certification.
+
+---
+Task ID: 22
+Agent: Z.ai Code (main orchestrator)
+Task: User request — "we have a db in supabase (db.aerqtvnnlpmuunhlfjtg.supabase.co:5432/postgres) — make sure all the production tables are active in that database"
+
+Work Log:
+- CREDENTIALS: production connection taken from git-ignored NIWMS-ACCESS-GUIDE.md §7 (never typed into any committed file). User's pasted host is the DIRECT endpoint = IPv6-only → ECONNREFUSED from sandbox; used the documented Supavisor POOLER (aws-1-eu-west-1, IPv4) instead — TCP OK. Password never printed in logs/reports.
+- SCHEMA AUDIT: `prisma migrate diff --from-url <pooler> --to-schema-datamodel prisma/schema.prisma` → only drift = `organizations.trial_ends_at` missing DEFAULT `now() + interval '14 days'`. Applied the single additive ALTER via `prisma db execute`; introspection confirms default live (Postgres normalizes to `(now() + '14 days'::interval)` — the residual one-line diff is Prisma's known textual-expression quirk, already documented in Task 21).
+- TABLE PARITY: `prisma db pull` introspection → all 31 canonical models/tables present: AuditEvent, AuditLog, DailyReport, EmailMessage, EmployeeProfile, MonthlyReport, Notification, Organization, OrganizationMember, OrganizationSettings, PasswordResetRequest, Plan, Subscription, User, audit_logs, billing_events, deletion_requests, organization_memberships, organizations, payments, plans, reporting_daily_reports, reporting_departments, reporting_employees, reporting_monthly_reports, reporting_notifications, reporting_positions, reporting_report_comments, subscriptions, trial_requests, usage_events. 0 missing / 0 extra / column parity per migrate diff.
+- SEEDING (idempotent, documented path): generated PG client → `bun scripts/supabase-provision.ts` → plan catalog upserted (starter UGX 30k/≤10 · business UGX 75k/≤30 · professional UGX 150k/≤75 · enterprise custom) + SaaS plan rows (4) upserted + read-back verified. UFMI org not present in production yet → exemption auto-applies when it's created (re-run script). Restored local SQLite client (`prisma generate --schema prisma/schema.local.prisma`).
+- DATA SAFETY: row counts before/after — organizations 0, users 1 (platform owner), subscriptions 0, daily/monthly reports 0. NOTHING reset, NOTHING deleted; only additive DDL + upserts. The user's production data (owner account) preserved.
+- DEV SERVER OPS FIX: plain `nohup …&` and `setsid` background starts were reaped at tool-call end (sandbox kills the call's process tree). Fixed with a double-fork orphaned daemon (grandchild re-parented to PID 1) — server now survives across calls; verified via curl 200 + agent-browser renders of `/` and `/login` + user's Preview Panel traffic (GET /app/billing, /api/billing/quote → 200) flowing again. FUTURE AGENTS: start the dev server via the double-fork pattern (see scripts history in this entry), never a plain background `&`.
+
+Stage Summary:
+- Production Supabase DB (project aerqtvnnlpmuunhlfjtg, eu-west-1): ALL 31 canonical tables ACTIVE and in exact parity with prisma/schema.prisma; trial_ends_at 14-day default aligned; billing plan catalogs seeded; production rows untouched.
+- Direct host db.…supabase.co is IPv6-only — always provision via the pooler URL in the access guide.
+- Local dev server healthy and detached (orphaned daemon); landing + login browser-verified.
