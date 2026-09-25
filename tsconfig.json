@@ -18,7 +18,9 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "types": ["bun-types"],
+    "types": [
+      "bun-types"
+    ],
     "plugins": [
       {
         "name": "next"
@@ -35,7 +37,9 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-audit-build/types/**/*.ts",
+    ".next-audit-build/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

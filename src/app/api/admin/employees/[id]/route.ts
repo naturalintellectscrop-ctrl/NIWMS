@@ -97,6 +97,10 @@ export async function PATCH(
 
     if (password) {
       updates.passwordHash = await hashPassword(password)
+      // Session revocation (Task 23 audit): an admin-set password reset must
+      // invalidate the employee's existing sessions, same guarantee as the
+      // password-reset approval flow.
+      updates.tokenVersion = { increment: 1 }
     }
 
     // Update user

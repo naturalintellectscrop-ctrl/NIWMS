@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { DAILY_REMINDER_TITLE, getLocalReminderWindow, shouldCreateReminder } from '@/lib/reminder-policy'
 import { queueEmail, dailyDigestEmail, trialWarningEmail } from '@/lib/email'
+import { cronAuthorized, cronUnauthorizedResponse } from '@/lib/cron-auth'
 
 const DIGEST_TITLE = 'Daily reporting digest'
 const TRIAL_WARNING_TITLE = 'Trial ending soon'
@@ -17,9 +18,12 @@ function formatDeadline(deadline: string | null | undefined) {
   return `${hours % 12 === 0 ? 12 : hours % 12}:${minutes} ${suffix} local time`
 }
 
-export async function POST(request: Request) {
-  const expected = process.env.BILLING_CRON_SECRET ?? process.env.JWT_SECRET
-  if (!expected || request.headers.get('authorization') !== `Bearer ${expected}`) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+// Task 23 audit fix: exports GET (Vercel cron's method) AND POST; bearer
+// comparison is constant-time and also accepts CRON_SECRET.
+async function sweep(request: Request) {
+  if (!cronAuthorized(request)) {
+    return cronUnauthorizedResponse()
+  }
   const organizations = await db.saaSOrganization.findMany({ include: { reportingEmployees: { where: { status: 'active' }, include: { membership: true } } } })
   let created = 0
   let digests = 0
@@ -125,6 +129,14 @@ export async function POST(request: Request) {
     }
   }
   return NextResponse.json({ created, digests, trialWarnings })
+}
+
+export async function GET(request: Request) {
+  return sweep(request)
+}
+
+export async function POST(request: Request) {
+  return sweep(request)
 }
 
 export const runtime = 'nodejs'

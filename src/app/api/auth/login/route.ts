@@ -5,15 +5,21 @@ import { signToken, sessionCookie } from '@/lib/auth'
 import { peekRateLimit, checkRateLimit } from '@/lib/rate-limiter'
 import { canAccessLifecycleState } from '@/lib/authorization'
 
-// Brute-force guard: after 5 FAILED sign-ins for the same username within the
-// window, further attempts are rejected until the window resets. Successful
-// sign-ins never consume quota (peek before verify, record only failures).
-function loginLocked(username: string) {
-  return !peekRateLimit(username, 'login_attempt').allowed
+// Brute-force guard: after 5 FAILED sign-ins for the same username+IP within
+// the window, further attempts are rejected until the window resets.
+// (Task 23 audit: key now includes the client IP so rotating usernames from
+// one source cannot bypass the limiter.) Successful sign-ins never consume
+// quota (peek before verify, record only failures).
+function clientIp(request: NextRequest) {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
 }
 
-function recordFailedLogin(username: string) {
-  checkRateLimit(username, 'login_attempt')
+function loginLocked(username: string, ip: string) {
+  return !peekRateLimit(`${username}|${ip}`, 'login_attempt').allowed
+}
+
+function recordFailedLogin(username: string, ip: string) {
+  checkRateLimit(`${username}|${ip}`, 'login_attempt')
 }
 
 // PostgreSQL supports SQL-side case-insensitive matching. The SQLite client
@@ -61,7 +67,13 @@ async function findCanonicalOrganization(input: string, requestedOrganizationId:
 // POST /api/auth/login
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    let body: { username?: unknown; password?: unknown; organization?: unknown; organizationId?: unknown }
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+    const ip = clientIp(request)
     const username = typeof body.username === 'string' ? body.username.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
     const organizationInput = typeof body.organization === 'string' ? body.organization.trim() : ''
@@ -74,7 +86,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (loginLocked(username)) {
+    if (loginLocked(username, ip)) {
       return NextResponse.json(
         { error: 'Too many failed sign-in attempts. Please try again in 15 minutes.' },
         { status: 429 }
@@ -87,7 +99,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!user || user.status !== 'active') {
-      recordFailedLogin(username)
+      recordFailedLogin(username, ip)
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
@@ -119,7 +131,7 @@ export async function POST(request: NextRequest) {
       ? canAccessLifecycleState(organization.status, gateBillingMode)
       : false
     if (!isPlatformAdmin && !lifecycleAllowed) {
-      recordFailedLogin(username)
+      recordFailedLogin(username, ip)
       return NextResponse.json({ error: 'Invalid organization credentials.' }, { status: 401 })
     }
 
@@ -128,14 +140,14 @@ export async function POST(request: NextRequest) {
       : undefined)
     const isLegacyOrganizationUser = Boolean(legacyOrganization && legacyOrganization.organizationType === 'LEGACY' && user.organizationId === legacyOrganization.id)
     if (!isPlatformAdmin && (!membership && !isLegacyOrganizationUser)) {
-      recordFailedLogin(username)
+      recordFailedLogin(username, ip)
       return NextResponse.json({ error: 'Invalid organization credentials.' }, { status: 401 })
     }
 
 
     const isValid = await verifyPassword(password, user.passwordHash)
     if (!isValid) {
-      recordFailedLogin(username)
+      recordFailedLogin(username, ip)
       return NextResponse.json(
         { error: 'Invalid credentials' },
         { status: 401 }

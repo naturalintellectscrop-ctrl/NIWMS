@@ -7,11 +7,13 @@
 //   - LEGACY-type organizations are routed to the UFMI portal experience (/portal)
 //   - every tenant-scoped API (admin + reporting) works unchanged
 //
-// Credentials follow the legacy system conventions:
-//   - Admin      / Admin@UFMI256      (federation administrator)
-//   - UFMI001..3 / Cinema@UFMI2026    (staff, id-number style usernames)
+// Credentials are supplied via environment variables (Task 23 security audit —
+// the previously hardcoded values sat in a git-tracked file and must be treated
+// as compromised; rotate them when provisioning):
+//   UFMI_ADMIN_PASSWORD      — federation administrator password
+//   UFMI_EMPLOYEE_PASSWORD   — shared staff password (UFMI001..003)
 //
-// Usage: node scripts/provision-ufmi.js   (safe to re-run)
+// Usage: UFMI_ADMIN_PASSWORD=... UFMI_EMPLOYEE_PASSWORD=... node scripts/provision-ufmi.js   (safe to re-run)
 
 const dotenv = require('dotenv');
 const path = require('path');
@@ -21,14 +23,21 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
+const UFMI_ADMIN_PASSWORD = process.env.UFMI_ADMIN_PASSWORD;
+const UFMI_EMPLOYEE_PASSWORD = process.env.UFMI_EMPLOYEE_PASSWORD;
+if (!UFMI_ADMIN_PASSWORD || !UFMI_EMPLOYEE_PASSWORD) {
+  console.error('UFMI_ADMIN_PASSWORD and UFMI_EMPLOYEE_PASSWORD are required (no default credentials since Task 23).');
+  process.exit(1);
+}
+
 const UFMI = {
   name: 'Uganda Federation of Movie Industry',
   slug: 'ufmi',
-  admin: { username: 'Admin', password: 'Admin@UFMI256', employeeId: 'UFMI-ADM-001', position: 'Federation Administrator' },
+  admin: { username: 'Admin', password: UFMI_ADMIN_PASSWORD, employeeId: 'UFMI-ADM-001', position: 'Federation Administrator' },
   employees: [
-    { username: 'UFMI001', password: 'Cinema@UFMI2026', employeeId: 'UFMI-EMP-001', name: 'Production Staff 1', position: 'Production Assistant' },
-    { username: 'UFMI002', password: 'Cinema@UFMI2026', employeeId: 'UFMI-EMP-002', name: 'Production Staff 2', position: 'Editor' },
-    { username: 'UFMI003', password: 'Cinema@UFMI2026', employeeId: 'UFMI-EMP-003', name: 'Production Staff 3', position: 'Location Coordinator' },
+    { username: 'UFMI001', password: UFMI_EMPLOYEE_PASSWORD, employeeId: 'UFMI-EMP-001', name: 'Production Staff 1', position: 'Production Assistant' },
+    { username: 'UFMI002', password: UFMI_EMPLOYEE_PASSWORD, employeeId: 'UFMI-EMP-002', name: 'Production Staff 2', position: 'Editor' },
+    { username: 'UFMI003', password: UFMI_EMPLOYEE_PASSWORD, employeeId: 'UFMI-EMP-003', name: 'Production Staff 3', position: 'Location Coordinator' },
   ],
 };
 

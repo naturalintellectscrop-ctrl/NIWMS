@@ -28,7 +28,8 @@ const LIMITS: Record<string, RateLimitConfig> = {
   admin_generate: { maxRequests: 20, windowMs: 60 * 60 * 1000 },     // 20 per hour
   admin_bulk: { maxRequests: 3, windowMs: 60 * 60 * 1000 },          // 3 per hour
   password_change: { maxRequests: 5, windowMs: 15 * 60 * 1000 },     // 5 per 15 min (brute-force guard on current-password check)
-  login_attempt: { maxRequests: 5, windowMs: 15 * 60 * 1000 },       // 5 FAILED logins per username per 15 min (brute-force guard)
+  login_attempt: { maxRequests: 5, windowMs: 15 * 60 * 1000 },       // 5 FAILED logins per username+IP per 15 min (brute-force guard)
+  forgot_password: { maxRequests: 5, windowMs: 60 * 60 * 1000 },     // 5 password-reset requests per IP per hour (enumeration/abuse guard)
   billing_quote: { maxRequests: 60, windowMs: 15 * 60 * 1000 },      // 60 anonymous quote lookups per 15 min per IP bucket
   billing_checkout: { maxRequests: 10, windowMs: 15 * 60 * 1000 },   // 10 checkout initiations per admin per 15 min (money-touching endpoint)
 }

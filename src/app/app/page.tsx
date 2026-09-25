@@ -3113,7 +3113,7 @@ function AdminExport() {
     try {
       const token = useAuthStore.getState().token
       const response = await fetch(`/api/admin/export?month=${month}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
 
       if (!response.ok) {
@@ -3273,7 +3273,7 @@ function EmployeeMonthlyReports() {
     try {
       const token = useAuthStore.getState().token
       const response = await fetch(`/api/reports/monthly/export/${reportId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
       if (!response.ok) {
         toast.error('Export failed')
@@ -3747,7 +3747,7 @@ function AdminMonthlyReports() {
     try {
       const token = useAuthStore.getState().token
       const response = await fetch(`/api/admin/reports/monthly/export/${reportId}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
       if (!response.ok) {
         if (response.status === 429) {

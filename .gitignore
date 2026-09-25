@@ -64,3 +64,9 @@ tool-results/
 # owner-only access guide (real credentials) — never commit
 NIWMS-ACCESS-GUIDE.md
 UFMI-LOGIN-CREDENTIALS.txt
+
+# runtime artifacts & local secrets (never track)
+db/*.db
+WhatsApp Image*.jpeg
+.zscripts/dev.pid
+.zscripts/*.log

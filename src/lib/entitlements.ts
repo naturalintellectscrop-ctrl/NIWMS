@@ -8,9 +8,18 @@ export const DEFAULT_PLANS = [
 ] as const
 
 export async function ensureDefaultPlans() {
-  await Promise.all(DEFAULT_PLANS.map((plan) => {
+  // Seeding guard (Task 23 audit): public GET endpoints call this on every hit.
+  // Only CREATE rows that are missing — never rewrite existing plan rows
+  // (removes write-on-read amplification and accidental overwrites of
+  // operator-edited pricing). Full-catalog upserts live in provisioning
+  // scripts (scripts/supabase-provision.ts, prisma/seed.js).
+  const existing = await db.plan.findMany({ select: { key: true } })
+  const known = new Set(existing.map((row) => row.key))
+  const missing = DEFAULT_PLANS.filter((plan) => !known.has(plan.key))
+  if (missing.length === 0) return
+  await Promise.all(missing.map((plan) => {
     const data = { key: plan.key, name: plan.name, monthlyPrice: plan.monthlyPrice, maxEmployees: plan.maxEmployees, active: true, entitlements: JSON.stringify(plan.entitlements) }
-    return db.plan.upsert({ where: { key: plan.key }, update: data, create: data })
+    return db.plan.create({ data })
   }))
 }
 

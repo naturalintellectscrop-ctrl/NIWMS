@@ -135,7 +135,7 @@ export const translations: Record<Locale, Record<string, string>> = {
     'report.submitNow': 'Submit Now',
     'report.welcomeBack': 'Welcome back, {username}',
     'report.deadline': 'Deadline',
-    'report.deadlineInfo': 'Reports should be submitted by 6:00 PM daily',
+    'report.deadlineInfo': 'Reports should be submitted by your organization\'s daily reporting deadline',
     'report.privacy': 'Privacy',
     'report.privacyInfo': 'Reports are confidential and accessible only to authorized personnel',
 

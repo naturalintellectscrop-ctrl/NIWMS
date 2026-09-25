@@ -2,9 +2,9 @@
 // Nylon Pay payment integration — unit tests for the pure security/logic layer.
 //
 // DB-backed flows (checkout → webhook → subscription sync) are verified
-// end-to-end by scripts/qa-nylonpay.ts against the dev server and the local
-// contract simulator; these tests pin the wire-contract math and the state
-// mapping exactly as published in the Nylon Pay SDK spec v2.4.0.
+// end-to-end by scripts/nylonpay-sandbox-cert.ts against the dev server and
+// the local contract simulator; these tests pin the wire-contract math and
+// the state mapping exactly as published in the Nylon Pay SDK spec v2.4.0.
 // =============================================================================
 
 import { createHmac } from 'node:crypto'
@@ -131,12 +131,15 @@ describe('Nylon Pay status mapping (spec v2.4.0 wire statuses)', () => {
   })
 })
 
-describe('Nylon Pay sandbox determinism inputs', () => {
-  it('testOutcome values accepted by the spec are exactly success|fail (plus failure codes)', () => {
-    // Pin the integration contract used by scripts/nylonpay-sandbox-cert.ts:
-    // test-mode keys may force outcomes; live keys must never send it.
-    const allowed = ['success', 'fail', 'provider_rejection', 'customer_timeout', 'insufficient_balance', 'invalid_number', 'internal_error', 'limit_exceeded', 'cancelled'] as const
-    expect(allowed).toContain('success')
-    expect(allowed).toContain('fail')
+describe('Nylon Pay webhook signature hygiene', () => {
+  it('rejects a signature computed with the wrong secret (fail-closed contract)', () => {
+    // Real contract check (replaces a former tautology that only asserted a
+    // local literal): the SDK verifier must fail closed on secret mismatch —
+    // the exact property the production webhook depends on.
+    const body = JSON.stringify({ event: 'payment.succeeded', reference: 'r', amount: 35400, timestamp: new Date().toISOString() })
+    const sign = (secret: string) => createHmac('sha256', secret).update(body).digest('hex')
+    const good = sign('secret-a')
+    expect(verifyWebhookSignature({ payload: body, signature: good, secret: 'secret-a' })).toBe(true)
+    expect(verifyWebhookSignature({ payload: body, signature: good, secret: 'secret-b' })).toBe(false)
   })
 })

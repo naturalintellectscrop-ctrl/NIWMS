@@ -13,7 +13,10 @@ const INTERVALS: BillingInterval[] = ['monthly', 'quarterly', 'annual']
 // amount that would be charged (VAT inclusive), the calendar period covered,
 // and the renewal date. Rate-limited because it is anonymous.
 export async function GET(request: NextRequest) {
-  const limit = checkRateLimit('anonymous-quote', 'billing_quote')
+  // Per-IP bucket (Task 23 audit fix): was a single global key, letting one
+  // client exhaust the quote calculator for everyone.
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  const limit = checkRateLimit(ip, 'billing_quote')
   if (!limit.allowed) {
     return NextResponse.json({ error: 'Too many quote requests. Please try again shortly.' }, { status: 429 })
   }

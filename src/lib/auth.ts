@@ -61,7 +61,13 @@ export const SESSION_COOKIE = 'ni_session'
 
 export function getTokenFromRequest(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
-  if (authHeader?.startsWith('Bearer ')) return authHeader.substring(7)
+  if (authHeader?.startsWith('Bearer ')) {
+    const bearer = authHeader.substring(7).trim()
+    // Legacy clients send a literal "null"/"undefined" bearer token when no
+    // session token exists — treat those as absent so the session cookie is
+    // honored instead of failing the request (audit Task 23: export 403 bug).
+    if (bearer && bearer !== 'null' && bearer !== 'undefined') return bearer
+  }
   return request.cookies.get(SESSION_COOKIE)?.value ?? null
 }
 

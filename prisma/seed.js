@@ -24,7 +24,9 @@ async function seed() {
     const passwordHash = await bcrypt.hash(seedPassword, 12);
     const admin = await prisma.user.upsert({
       where: { username: 'admin@niltd.com' },
-      update: { passwordHash, role: 'super_admin', status: 'active', organizationId: null },
+      // Credential-overwrite guard (Task 23 audit): re-seeding must never
+      // rewrite an existing account's password/role — only fill in missing rows.
+      update: { status: 'active' },
       create: { username: 'admin@niltd.com', passwordHash, role: 'super_admin', status: 'active' },
     });
 
@@ -82,7 +84,7 @@ async function seed() {
         const username = `${fixture.slug.replaceAll('-', '')}.employee${index}@example.test`;
         const user = await prisma.user.upsert({
           where: { username },
-          update: { passwordHash, role: 'employee', status: 'active' },
+          update: { status: 'active' }, // never rewrite existing credentials on re-seed
           create: { username, passwordHash, role: 'employee', status: 'active' },
         });
         const membership = await prisma.saaSOrganizationMembership.upsert({
@@ -108,7 +110,7 @@ async function seed() {
       const orgAdminUsername = `${fixture.slug.replaceAll('-', '')}.orgadmin@example.test`;
       const orgAdmin = await prisma.user.upsert({
         where: { username: orgAdminUsername },
-        update: { passwordHash, role: 'admin', status: 'active' },
+        update: { status: 'active' }, // never rewrite existing credentials on re-seed
         create: { username: orgAdminUsername, passwordHash, role: 'admin', status: 'active' },
       });
       await prisma.saaSOrganizationMembership.upsert({
